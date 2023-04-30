@@ -12,6 +12,8 @@ yc compute instance create \
   --metadata-from-file ssh-keys=/home/aavdonin/.ssh/aavdonin.txt
 ```
 
+Перед началом развертывания был создан ssh ключ, открытый ключ сохранен в файл aavdonin.txt. После развертывания удалось подключиться под пользователем ubuntu с указанием имени ключа. Так ж предварительно был установлен и настроен Yandex cloud CLI.
+
 Установка Postgres:
 
 ```bash
