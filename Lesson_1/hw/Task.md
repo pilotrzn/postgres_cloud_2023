@@ -15,6 +15,7 @@
 - insert into persons(first_name, second_name) values('ivan', 'ivanov');
 - insert into persons(first_name, second_name) values('petr', 'petrov');
 - commit;
+- 
 - посмотреть текущий уровень изоляции: show transaction isolation level
 - начать новую транзакцию в обоих сессиях с дефолтным (не меняя) уровнем изоляции
 - в первой сессии добавить новую запись
@@ -25,6 +26,7 @@
 - сделать select * from persons во второй сессии
 - видите ли вы новую запись и если да то почему?
 - завершите транзакцию во второй сессии
+- 
 - начать новые но уже repeatable read транзакции - set transaction isolation level repeatable read;
 - в первой сессии добавить новую запись
 - insert into persons(first_name, second_name) values('sveta', 'svetova');
@@ -36,3 +38,5 @@
 - завершить вторую транзакцию
 - сделать select * from persons во второй сессии
 - видите ли вы новую запись и если да то почему?
+
+[Назад](README.md)
