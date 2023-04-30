@@ -5,6 +5,7 @@
 ```sql
 postgres=# create database iso_test;
 postgres=# \c iso_test;
+iso_test=# create schema iso;
 iso_test=# alter database iso_test set search_path to iso,public;
 ```
   - создание и наполнение таблицы.
