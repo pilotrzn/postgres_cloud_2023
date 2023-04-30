@@ -1,5 +1,9 @@
 # Создание виртуальной машины на Yandex cloud
- 
+
+Перед началом развертывания был создан ssh ключ, открытый ключ сохранен в файл aavdonin.txt. После развертывания удалось подключиться под пользователем ubuntu с указанием имени ключа. Так ж предварительно был установлен и настроен Yandex cloud CLI.
+
+Команда для развертывания: 
+
 ```bash
 yc compute instance create \
   --name pgsrv01 \
@@ -11,8 +15,6 @@ yc compute instance create \
   --zone ru-central1-b \
   --metadata-from-file ssh-keys=/home/aavdonin/.ssh/aavdonin.txt
 ```
-
-Перед началом развертывания был создан ssh ключ, открытый ключ сохранен в файл aavdonin.txt. После развертывания удалось подключиться под пользователем ubuntu с указанием имени ключа. Так ж предварительно был установлен и настроен Yandex cloud CLI.
 
 Установка Postgres:
 
@@ -30,8 +32,10 @@ Ver Cluster Port Status Owner    Data directory              Log file
 
 Для работы был изменен пароль пользователя БД postgres.
 Скорректированы параметры:
- - listen_address = "*"
- - shared_buffers = 1GB
+ - listen_address = "*";
+ - shared_buffers = 1GB;
+
+Остальное настраивать не стал, для теста этого достаточно.
 
 В конфигурации pg_hba изменен метод аутентификации для local на md5.
 После изменений перезапущен сервер postgres.
