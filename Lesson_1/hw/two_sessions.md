@@ -11,7 +11,7 @@ iso_test=# alter database iso_test set search_path to iso,public;
   - создание и наполнение таблицы.
   
 ```sql
-iso_test=# create table iso.persons(id serial, first_name text, second_name text);
+iso_test=# create table persons(id serial, first_name text, second_name text);
 iso_test=# insert into persons(first_name, second_name) values('ivan', 'ivanov'),('petr', 'petrov');
 iso_test=# \set AUTOCOMMIT off;
 ```
