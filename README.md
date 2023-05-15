@@ -7,3 +7,5 @@
 2. [Postgres & Docker](Lesson_2/README.md)
 
 3. [Настройка PostgreSQL](Lesson_3/README.md)
+
+4. [Профилирование. Мониторинг. Оптимизация](Lesson_4/README.md)
