@@ -1,0 +1,648 @@
+-- --image-family=ubuntu-2004-lts
+gcloud beta compute --project=celtic-house-266612 instances create postgres --zone=us-central1-a --machine-type=e2-medium --subnet=default --network-tier=PREMIUM --maintenance-policy=MIGRATE --service-account=933982307116-compute@developer.gserviceaccount.com --scopes=https://www.googleapis.com/auth/devstorage.read_only,https://www.googleapis.com/auth/logging.write,https://www.googleapis.com/auth/monitoring.write,https://www.googleapis.com/auth/servicecontrol,https://www.googleapis.com/auth/service.management.readonly,https://www.googleapis.com/auth/trace.append --image-family=ubuntu-2004-lts --image-project=ubuntu-os-cloud --boot-disk-size=30GB --boot-disk-type=pd-ssd --boot-disk-device-name=postgres --no-shielded-secure-boot --shielded-vtpm --shielded-integrity-monitoring --reservation-affinity=any
+
+gcloud compute ssh postgres
+
+-- для гугла уже не актуально
+-- оставить старую версию ядра sudo apt update && sudo apt-mark hold linux-image-5.11.0-1023-gcp
+
+-- узнаем версию ядра
+sudo cat /proc/version
+
+-- чет в ЯО не сильно помогает
+-- sudo apt update && sudo apt-mark hold linux-image-5.11.0-1023-gcp
+sudo apt update && sudo apt-mark hold linux-image-5.15.0-58-generic
+
+
+sudo apt update && sudo DEBIAN_FRONTEND=noninteractive apt upgrade -y -q && sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list' && wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add - && sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt -y install postgresql-15 htop iotop atop unzip pgtop lynx iftop
+
+-- будет ли разница ?
+sudo -iu postgres pgbench -i
+echo "select count(1) from pgbench_accounts;" | sudo -iu postgres pgbench -t 50 -P 1
+echo "select count(*) from pgbench_accounts;" | sudo -iu postgres pgbench -t 50 -P 1
+
+
+-- зальем 2 млн записей 
+sudo su postgres 
+psql
+explain select count(*) from pgbench_accounts;
+explain select count(1) from pgbench_accounts;
+exit
+-- https://postgrespro.ru/education/demodb
+cd $HOME && wget --quiet https://edu.postgrespro.ru/demo_small.zip && unzip demo_small.zip && psql < demo_small.sql
+exit
+
+sudo htop 
+sudo atop
+sudo iotop 
+-- диск
+sudo iostat -x
+-- сеть
+sudo iftop
+
+-- pgtop
+-- 2 окно
+sudo -u postgres psql
+CREATE TABLE test(i int);
+INSERT INTO test SELECT s.id FROM generate_series(1,1000000000) AS s(id);
+
+-- 1 
+sudo -u postgres pg_top
+
+-- текст запроса Q #
+-- план E
+-- блокировки L
+
+-- Мониторинг
+-- что подключено в текущую секунду
+sudo -u postgres psql
+-- во 2 запустим нагрузку
+
+SELECT * FROM pg_stat_activity;
+
+-- Получаем активные запросы длительностью более 5 секунд:
+SELECT now() - query_start as "runtime", usename, datname, state, wait_event_type, wait_event, query 
+FROM pg_stat_activity 
+WHERE now() - query_start > '5 seconds'::interval and state='active' 
+ORDER BY runtime DESC;
+
+-- State = ‘idle’ тоже вызывают подозрения. Но хуже всего - idle in transaction!
+
+Далее убиваем:
+●	для active
+○	SELECT pg_cancel_backend(procpid);
+●	для idle
+○	SELECT pg_terminate_backend(procpid); 
+
+-- Посмотреть можем:
+
+
+
+-- ТОПпо загрузке CPU:
+CREATE EXTENSION pg_stat_statements;
+
+SELECT pid, xact_start, now() - xact_start AS duration 
+FROM pg_stat_activity 
+WHERE state LIKE '%transaction%' 
+ORDER BY duration DESC;
+
+alter system set shared_preload_libraries = 'pg_stat_statements';
+
+exit
+
+sudo pg_ctlcluster 15 main restart
+
+sudo -u postgres psql
+show shared_preload_libraries;
+
+SELECT * FROM  pg_stat_statements;
+
+SELECT substring(query, 1, 50) AS short_query, round(total_exec_time::numeric, 2) AS total_time,
+	calls, rows, round(total_exec_time::numeric / calls, 2) AS avg_time,
+	round((100 * total_exec_time / sum(total_exec_time::numeric) OVER ())::numeric, 2) AS percentage_cpu
+FROM pg_stat_statements
+ORDER BY total_time DESC LIMIT 20;
+
+-- ТОП по времени выполнения:
+
+SELECT substring(query, 1, 50) AS short_query, round(total_exec_time::numeric, 2) AS total_time,
+	calls, rows, round(total_exec_time::numeric / calls, 2) AS avg_time,
+	round((100 * total_exec_time / sum(total_exec_time::numeric) OVER ())::numeric, 2) AS percentage_cpu
+FROM pg_stat_statements
+ORDER BY avg_time DESC LIMIT 20;
+
+EXPLAIN SELECT substring(query, 1, 50) AS short_query, round(total_exec_time::numeric, 2) AS total_time,
+	calls, rows, round(total_exec_time::numeric / calls, 2) AS avg_time,
+	round((100 * total_exec_time / sum(total_exec_time::numeric) OVER ())::numeric, 2) AS percentage_cpu
+FROM pg_stat_statements
+ORDER BY avg_time DESC LIMIT 20;
+
+-- Вспоминаем про представление pg_stat_user_tables.
+-- Большое зло - «последовательное чтение» больших таблиц!
+
+-- Посмотрим, используя запрос:
+SELECT schemaname, relname, seq_scan, seq_tup_read, seq_tup_read / seq_scan AS avg, idx_scan
+FROM pg_stat_user_tables
+WHERE seq_scan > 0
+ORDER BY seq_tup_read DESC
+LIMIT 25;
+
+-- Сверху этого запроса и будут таблицы, в которых больше всего операций последовательного чтения.
+-- Они будут подозрительны для анализа причин отсутствующих индексов.
+
+-- профилирование
+alter system set log_min_duration_statement = 0;
+select pg_reload_conf();
+show log_min_duration_statement;
+select * from test;
+exit
+
+sudo DEBIAN_FRONTEND=noninteractive apt install -y pgbadger
+tail /var/log/postgresql/postgresql-15-main.log
+pgbadger /var/log/postgresql/postgresql-15-main.log
+lynx out.html
+
+
+-- оптимизация
+-- память -> диск и tablespace
+cat /etc/fstab
+ramdisk  /tmp/disk/mem/1gb/ tmpfs defaults,size=1G,x-gvfs-show  0  0
+
+
+-- практика по транзакциям
+sudo -u postgres psql
+DROP TABLE IF EXISTS tbl;
+CREATE TABLE tbl (i int);
+-- drop procedure insert_data();
+CREATE or replace PROCEDURE insert_data(a int)
+AS $$
+BEGIN
+    FOR I in 1..10000 LOOP
+        INSERT INTO tbl VALUES (I);
+        IF a = 1 THEN 
+            COMMIT; 
+        END IF;
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql;
+
+
+-- вызовем процедуру используя CALL
+\echo :AUTOCOMMIT
+\timing
+CALL insert_data(1);
+CALL insert_data(0);
+
+
+-- включить асинхронный коммит во 2 окне
+sudo su postgres
+cd $HOME
+psql -c "drop database if exists async_test;"
+psql -c "create database async_test;"
+pgbench -i -s 10 async_test
+pgbench -P 1 -T 10 async_test
+psql -c "ALTER SYSTEM SET synchronous_commit = off;"
+psql -c "SELECT pg_reload_conf();"
+pgbench -P 1 -T 10 async_test
+
+-- в 1 окне
+CALL insert_data(1);
+CALL insert_data(0);
+
+
+
+-- вообще отключаем синхронную запись на диск
+fsync=off
+full_page_writes=off
+
+
+-- нужно по выгрузке обновить 100 млн.строк
+-- Обязательно ли апдейт?
+-- заливать copy
+date && for f in *.csv*; do psql -d taxi -c "\\COPY taxi_trips FROM PROGRAM 'cat $f' CSV HEADER"; done && date
+
+-- bigquery
+-- https://console.cloud.google.com/bigquery?referrer=search&project=celtic-house-266612&supportedpurview=project&ws=!1m0
+select count(*) from bigquery-public-data.chicago_taxi_trips.taxi_trips;
+
+select payment_type, round(sum(tips)/sum(tips+fare)*100) tips_persent, count(*) as c
+from bigquery-public-data.chicago_taxi_trips.taxi_trips
+group by payment_type
+order by c desc;
+
+-- аналогичный запрос в Постгресе около часа
+
+
+-- чекпойнты
+select * from pg_settings where name like '%checkpoint%' \gx
+
+
+-- автовакуум / мертвые таплы
+-- автовакуум поагрессивнее
+SELECT relname, n_live_tup, n_dead_tup, trunc(100*n_dead_tup/(n_live_tup+1))::float "ratio%", last_autovacuum FROM pg_stat_user_tables WHERE relname = 'tbl';
+update tbl set i = i + 1;
+
+
+
+
+-- Индексы
+
+-- не забываем, что кластрный индекс одноразовый и по факту создается новый файл с упорядочиванием по индексу
+-- аналог VACUUM FULL без исключительной блокировки
+-- поможет расширение:
+-- https://postgrespro.ru/docs/postgrespro/15/app-pgrepack
+-- не забываем еще про наличие минимум такого же свободного места как и искомая таблица
+
+при использовании AND в WHERE довольно сложный механизм использования битовой маски и джойном индексов
+может есть смысл делать составной индекс или джойнится с СТЕ при наличии независимых полей
+
+-- !! REINDEX CONCURRENTLY
+-- желательно вообще отключать на время загрузки больших объемов
+
+-- посмотреть раздутость индекса
+psql -c "drop database if exists index_test;"
+psql -c "create database index_test;"
+pgbench -i -s 10 index_test
+psql index_test -c "CREATE EXTENSION pgstattuple;"
+psql index_test -c "\d+ pgbench_accounts";
+psql index_test -c "SELECT * FROM pgstatindex('pgbench_accounts_pkey');"
+psql index_test -c "update pgbench_accounts set bid = bid + 1000000;"
+psql index_test -c "update pgbench_accounts set aid = aid + 1000000;"
+psql index_test
+SELECT relname, n_live_tup, n_dead_tup, trunc(100*n_dead_tup/(n_live_tup+1))::float "ratio%", last_autovacuum FROM pg_stat_user_TABLEs WHERE relname = 'pgbench_accounts';
+VACUUM pgbench_accounts;
+SELECT * FROM pgstatindex('pgbench_accounts_pkey') \gx
+
+VACUUM FULL pgbench_accounts; -- на хайлоаде невозможно - требует исключительной блокировки всей таблицы
+SELECT * FROM pgstatindex('pgbench_accounts_pkey') \gx
+
+REINDEX INDEX CONCURRENTLY pgbench_accounts_pkey;
+-- и снова обновим все записи и посмотрим что будет
+update pgbench_accounts set bid = bid + 1000000;
+update pgbench_accounts set aid = aid + 1000000;
+SELECT * FROM pgstatindex('pgbench_accounts_pkey') \gx
+VACUUM pgbench_accounts;
+update pgbench_accounts set bid = bid + 1000000;
+SELECT * FROM pgstatindex('pgbench_accounts_pkey') \gx
+VACUUM pgbench_accounts;
+update pgbench_accounts set aid = aid + 1000000;
+SELECT * FROM pgstatindex('pgbench_accounts_pkey') \gx
+VACUUM pgbench_accounts;
+SELECT * FROM pgstatindex('pgbench_accounts_pkey') \gx
+
+REINDEX INDEX CONCURRENTLY pgbench_accounts_pkey;
+SELECT * FROM pgstatindex('pgbench_accounts_pkey') \gx
+
+-- аналог VACUUM FULL без исключительной блокировки
+https://postgrespro.ru/docs/postgrespro/14/app-pgrepack
+
+
+-- по полнотекстовому поиску пример индекса и запросов
+drop table if exists test_fts;
+create table test_fts(t text);
+INSERT INTO test_fts VALUES ('лимон'),('лимонад'),('налим'),('толстая кошка'),('толстые кошки'),('кот полосатый'),('худые коты');
+CREATE INDEX idx ON test_fts USING GIN (to_tsvector('russian',t));
+
+SELECT count(*)
+FROM test_fts
+WHERE to_tsvector('russian',t) @@ to_tsquery('лимон');
+
+SELECT count(*)
+FROM test_fts
+WHERE to_tsvector('russian',t) @@ to_tsquery('лим');
+
+SELECT count(*)
+FROM test_fts
+WHERE to_tsvector('russian',t) @@ to_tsquery('кот');
+
+SELECT count(*)
+FROM test_fts
+WHERE to_tsvector('russian',t) @@ to_tsquery('кошка');
+
+SELECT count(*)
+FROM test_fts
+WHERE to_tsvector('russian',t) @@ to_tsquery('кошк');
+
+-- используем язык и при преобразовании шаблона для поиска
+SELECT count(*)
+FROM test_fts
+WHERE to_tsvector('russian',t) @@ to_tsquery('russian','кошка');
+
+EXPLAIN
+SELECT count(*)
+FROM test_fts
+WHERE to_tsvector('russian',t) @@ to_tsquery('кошк');
+
+EXPLAIN
+SELECT count(*)
+FROM test_fts
+WHERE to_tsvector('russian',t) @@ to_tsquery('russian','кошк');
+
+-- https://www.db-fiddle.com/f/gW1N26Cht89J5ZezCff4dL/2
+
+
+
+-- Тюнинг Линукса
+-- https://habr.com/ru/company/otus/blog/340870/
+huge pages – подключить (при работе с большими объемами данных)
+в postgresql.conf параметр huge_page = try
+
+transparent_hugepage (THP прозрачные огромные страницы) - отключить.
+cat /sys/kernel/mm/transparent_hugepage/enabled
+echo never > /sys/kernel/mm/transparent_hugepage/enabled
+
+swapiness 60-> 1..10
+-- https://habr.com/ru/company/flant/blog/348324/
+-- https://www.kernel.org/doc/html/latest/admin-guide/sysctl/vm.html?highlight=swappiness
+
+-- https://habr.com/ru/post/458860/
+-- Тот случай когда комментарий на порядок полезней статьи
+vm.dirty_*ratio опасны тем, что вот у вас средняя железка с 256гб памяти. И всего-то 5% от них — это уже до 12 гигабайт данных, которые вдруг начинают лететь на диск одним махом потому что база запросила fsync. И всё, диски перегружены и тормозят. Даже на хороших SSD записать 12 гигабайт random write — это не микросекунды вопрос. Они только по интерфейсу даже pci-e nvme дисков несколько секунд пропихиваться будут.
+А если у вас не хорошие SSD ориентированные на пишущую нагрузку (а таких подавляющее большинство) — то сразу начинаются фокусы вроде ой, простой insert одной строки работает больше секунды. Потому что диск стал резко перегружен и не отвечает на fsync записи в WAL.
+Поэтому только *_bytes и при том весьма агрессивные. Что-то вроде сотни мегабайт dirty_bytes и гигабайт-два dirty_background_bytes.
+
+
+
+-- По запросам
+psql demo
+\timing
+-- список таблиц
+\dt+ bookings.*
+
+-- Построим список рейсов:
+SELECT flight_no
+FROM bookings.flights
+limit 10;
+
+-- Добавим дату рейса без времени:
+SELECT flight_no, scheduled_departure::date as depart_date
+FROM bookings.flights
+limit 10;
+
+-- Добавим аэропорт прилёта и отсортируем по дате вылета:
+SELECT f.flight_no, f.scheduled_departure::date as depart_date, a1.airport_name as from_air, a2.airport_name as to_air
+FROM bookings.flights f
+JOIN bookings.airports as a1 on a1.airport_code = f.departure_airport
+JOIN bookings.airports as a2 on a2.airport_code = f.arrival_airport
+order by depart_date limit 10;
+
+-- Посчитаем количество проданных билетов:
+SELECT f.flight_no, f.scheduled_departure::date as depart_date, a1.airport_name as from_air, a2.airport_name as to_air, count(tf.ticket_no)
+FROM bookings.flights f
+JOIN bookings.airports as a1 ON a1.airport_code = f.departure_airport
+JOIN bookings.airports as a2 ON a2.airport_code = f.arrival_airport
+LEFT JOIN bookings.ticket_flights tf ON tf.flight_id = f.flight_id
+GROUP BY f.flight_id, f.flight_no, depart_date, from_air, to_air
+ORDER BY depart_date LIMIT 10;
+
+-- Видим, что наши запросы начинают выполняться всё дольше и дольше.
+
+-- Посчитаем ещё и вместимость и, используя EXPLAIN ANALYZE, посмотрим на время выполнения запроса, 
+-- посчитаем cost и посмотрим, что вообще происходит внутри:
+EXPLAIN 
+SELECT f.flight_no, f.scheduled_departure::date as depart_date, a1.airport_name as from_air, a2.airport_name as to_air, count(s.seat_no), count(tf.ticket_no)
+FROM bookings.flights f
+JOIN bookings.airports as a1 ON a1.airport_code = f.departure_airport
+JOIN bookings.airports as a2 ON a2.airport_code = f.arrival_airport
+JOIN bookings.seats as s ON s.aircraft_code = f.aircraft_code
+LEFT JOIN bookings.ticket_flights tf ON tf.flight_id = f.flight_id
+GROUP BY f.flight_id, f.flight_no, depart_date, from_air, to_air
+ORDER BY depart_date LIMIT 10;
+
+
+-- ждать выполнения не будем, так как запрос сожрет всю оперативку, потом дисковую память 
+-- и упадет через несколько минут в 13 Постгресе
+-- в 14 выполнится из-за ряда оптимизаций движка
+-- Посмотрим просто план без непосредственного выполнения запроса через EXPLAIN:
+EXPLAIN
+SELECT f.flight_no, f.scheduled_departure::date as depart_date, a1.airport_name as from_air, a2.airport_name as to_air, count(s.seat_no), count(tf.ticket_no)
+FROM bookings.flights f
+JOIN bookings.airports as a1 ON a1.airport_code = f.departure_airport
+JOIN bookings.airports as a2 ON a2.airport_code = f.arrival_airport
+JOIN bookings.seats as s ON s.aircraft_code = f.aircraft_code
+LEFT JOIN bookings.ticket_flights tf ON tf.flight_id = f.flight_id
+GROUP BY f.flight_id, f.flight_no, depart_date, from_air, to_air
+ORDER BY depart_date LIMIT 10;
+
+-- Видим просто фантастическую стоимость и итоговое количество строк для анализа!
+-- вариант с вложенными подзапросами
+SELECT f.flight_no, f.scheduled_departure::date AS depart_date, a1.airport_name AS from_air, a2.airport_name AS to_air, 
+(SELECT count(*) FROM bookings.seats AS s WHERE s.aircraft_code = f.aircraft_code) AS vsego_mest, 
+(SELECT count(*) FROM bookings.ticket_flights AS tf WHERE tf.flight_id = f.flight_id) AS zanyato_mest
+FROM bookings.flights f
+JOIN bookings.airports AS a1 ON a1.airport_code = f.departure_airport
+JOIN bookings.airports AS a2 ON a2.airport_code = f.arrival_airport
+ORDER BY depart_date LIMIT 10;
+
+-- вариант с двумя СТЕ:
+WITH vsego AS (
+    SELECT count(s.seat_no) as c, s.aircraft_code
+    FROM bookings.seats s
+    group by aircraft_code
+),
+zanyato AS (
+    SELECT count(tf.flight_id) as c, tf.flight_id
+    FROM bookings.ticket_flights tf
+    group by flight_id
+)
+SELECT f.flight_no , f.scheduled_departure::date as depart_date, a1.airport_name as from_air, a2.airport_name as to_air, v.c as vsego_mest, coalesce(z.c, 0) as zanyato
+FROM bookings.flights f
+JOIN bookings.airports as a1 ON a1.airport_code = f.departure_airport
+JOIN bookings.airports as a2 ON a2.airport_code = f.arrival_airport
+JOIN vsego as v ON v.aircraft_code = f.aircraft_code
+LEFT JOIN zanyato z ON z.flight_id = f.flight_id
+ORDER BY depart_date LIMIT 10;
+
+
+
+-- view
+-- materialized view
+create table sklad (id serial PRIMARY KEY, name text, kolvo int, price numeric(17,2));
+create table sales (id serial PRIMARY KEY, kolvo int, summa numeric(17,2), fk_skladID int references sklad(id), salesDate date);
+
+insert into sklad (id, name, price) values (1, 'Сливы', 100), (2, 'Яблоки', 120);
+insert into sales(fk_skladID, kolvo) values (1, 10), (2, 5);
+
+create materialized view ms as select s.kolvo, sk.name 
+	from sales as s
+	join sklad sk
+		on s.fk_skladID = sk.id;
+
+select * from ms;
+
+-- https://postgrespro.ru/docs/postgrespro/14/sql-refreshmaterializedview
+
+-- index unique on MAT VIEW!!!
+CREATE UNIQUE INDEX ui ON ms(id);
+refresh materialized view CONCURRENTLY ms WITH DATA;
+
+delete from sales;
+delete from sklad;
+
+-- добавление колонки
+\c postgres
+INSERT INTO test SELECT s.id FROM generate_series(1,1000000) AS s(id);
+\dt+ 
+alter table test add column testd int default 0;
+select * from test limit 10;
+\dt+ 
+alter table test add column testd5 text default 'testsdkgskdfsklfskfjskdfjsdklfjsdklfjadsdfdsfsdfdfsdfsfsfsfsdfsssdfsdfsdfsfsdfsfsdf';
+\dt+
+alter table test alter column testd5 set default 'test';
+
+
+insert into test(i) values (0);
+select * from test where i = 0 or i = 1;
+
+CREATE UNIQUE INDEX ui2 ON test(i);
+
+
+-- https://www.postgresql.org/docs/current/plpgsql-implementation.html#PLPGSQL-PLAN-CACHING
+
+-- хинты оптимизатору добавить
+https://github.com/ossc-db/pg_hint_plan
+https://postgrespro.ru/docs/enterprise/14/pg-hint-plan#PG-HINT-PLAN-INSTALL
+
+
+gc https://github.com/ossc-db/pg_hint_plan
+cd pg_hint_plan/
+
+-- https://dev.to/yugabyte/build-a-postgresql-docker-image-with-pghintplan-and-pgstatstatements-46pa
+-- https://github.com/ossc-db/pg_hint_plan/releases
+cd ~
+wget https://github.com/ossc-db/pg_hint_plan/releases/download/REL15_1_5_0/pg_hint_plan15-1.5-1.el8.x86_64.rpm
+sudo apt update -y
+-- sudo apt upgrade -y
+sudo apt install -y alien
+sudo alien ./pg_hint_plan*.rpm
+sudo dpkg -i pg-hint-plan*.deb
+
+sudo cp /usr/pgsql-15/share/extension/pg_hint_plan.control /usr/share/postgresql/15/extension
+-- ?? ls /usr/pgsql-15/share/extension/
+sudo cp /usr/pgsql-15/share/extension/pg_hint_plan--1.5.sql /usr/share/postgresql/15/extension
+sudo cp /usr/pgsql-15/lib/pg_hint_plan.so /usr/lib/postgresql/15/lib
+
+sudo pg_ctlcluster 15 main stop
+-- echo "shared_preload_libraries='pg_hint_plan,pg_stat_statements'" >> sudo tee --append /etc/postgresql/15/main/postgresql.conf
+sudo cat /etc/postgresql/15/main/postgresql.conf
+sudo nano /etc/postgresql/15/main/postgresql.conf
+-- shared_preload_libraries='pg_hint_plan,pg_stat_statements'
+sudo pg_ctlcluster 15 main start
+sudo -u postgres psql
+-- on session
+LOAD 'pg_hint_plan';
+
+-- Do CREATE EXTENSION and SET pg_hint_plan.enable_hint_tables TO on if you are planning to hint tables.
+
+create table t(i int);
+/*+ SeqScan(t) */ explain select * from t;
+
+create index i on t(i);
+/*+ IndexScan(t i) */ explain select * from t;
+postgres=# /*+ IndexScan(t i) */ explain select * from t;
+                               QUERY PLAN
+------------------------------------------------------------------------
+ Seq Scan on t  (cost=10000000000.00..10000000035.50 rows=2550 width=4)
+
+insert into t values (1), (2);
+
+/*+ IndexScan(t i) */ explain select * from t;
+postgres=# /*+ IndexScan(t i) */ explain select * from t;
+                               QUERY PLAN
+------------------------------------------------------------------------
+ Seq Scan on t  (cost=10000000000.00..10000000035.50 rows=2550 width=4)
+
+-- добавим условие
+/*+ IndexScan(t i) */ explain select * from t where i=1;
+                         QUERY PLAN
+-------------------------------------------------------------
+ Index Scan using i on t  (cost=0.15..36.38 rows=13 width=4)
+   Index Cond: (i = 1)
+(2 rows)
+
+-- оптимизация запроса JOIN vs IN
+marketplace_db=# explain update mp.client
+marketplace_db-# set email = 'asian_' || cl.email
+marketplace_db-# from mp.client cl
+marketplace_db-#          join mp.city as ci on cl.city_id = ci.id
+marketplace_db-# where ci.timezone in ('Asia/Shanghai', 'Asia/Tokyo');
+                                            QUERY PLAN
+---------------------------------------------------------------------------------------------------
+ Update on client  (cost=371.00..268819.29 rows=0 width=0)
+   ->  Hash Join  (cost=371.00..268819.29 rows=16000000 width=136)
+         Hash Cond: (ci.id = cl.city_id)
+         ->  Nested Loop  (cost=0.00..2248.29 rows=160000 width=14)
+               ->  Seq Scan on client  (cost=0.00..246.00 rows=10000 width=6)
+               ->  Materialize  (cost=0.00..2.33 rows=16 width=8)
+                     ->  Seq Scan on city ci  (cost=0.00..2.25 rows=16 width=8)
+                           Filter: ((timezone)::text = ANY ('{Asia/Shanghai,Asia/Tokyo}'::text[]))
+         ->  Hash  (cost=246.00..246.00 rows=10000 width=29)
+               ->  Seq Scan on client cl  (cost=0.00..246.00 rows=10000 width=29)
+ JIT:
+   Functions: 15
+   Options: Inlining false, Optimization false, Expressions true, Deforming true
+(13 rows)
+
+marketplace_db=# explain update mp.client cl
+marketplace_db-# set email = 'asian_' || cl.email
+marketplace_db-# where cl.city_id in (select ci.id from mp.city ci where ci.timezone in ('Asia/Shanghai', 'Asia/Tokyo'));
+                                         QUERY PLAN
+---------------------------------------------------------------------------------------------
+ Update on client cl  (cost=2.45..283.81 rows=0 width=0)
+   ->  Hash Join  (cost=2.45..283.81 rows=1600 width=130)
+         Hash Cond: (cl.city_id = ci.id)
+         ->  Seq Scan on client cl  (cost=0.00..246.00 rows=10000 width=29)
+         ->  Hash  (cost=2.25..2.25 rows=16 width=8)
+               ->  Seq Scan on city ci  (cost=0.00..2.25 rows=16 width=8)
+                     Filter: ((timezone)::text = ANY ('{Asia/Shanghai,Asia/Tokyo}'::text[]))
+(7 rows)
+
+
+-- если вдруг кончилось место на диске и почистили wal файлы
+-- 2022-09-07 11:38:57.141 MSK [1109] PANIC:  could not locate a valid checkpoint record
+-- 2022-09-07 11:38:57.142 MSK [1108] LOG:  startup process (PID 1109) was terminated by signal 6: Aborted
+-- 2022-09-07 11:38:57.142 MSK [1108] LOG:  aborting startup due to startup process failure
+-- 2022-09-07 11:38:57.143 MSK [1108] LOG:  database system is shut down
+
+/usr/lib/postgresql/15/bin/pg_resetwal /var/lib/postgresql/15/main
+-- force -f
+/usr/lib/postgresql/15/bin/pg_resetwal -f /var/lib/postgresql/15/main
+
+
+-- автовакуум / мертвые таплы
+SELECT relname, n_live_tup, n_dead_tup, trunc(100*n_dead_tup/(n_live_tup+1))::float "ratio%", last_autovacuum 
+FROM pg_stat_user_tables WHERE relname = 'test';
+-- и не видим вставленных миллионов %)
+SELECT pg_relation_filepath('test');
+
+cd /var/lib/postgresql/15/main/base/5
+ls -l| grep 25595
+-- погенерируем и посмотрим на память
+INSERT INTO test SELECT s.id FROM generate_series(1,1000000000) AS s(id);
+
+-- по факту пошли в тем тейбл спейс и пошли тратить диск
+/var/lib/postgresql/15/main/base/pgsql_tmp
+
+https://postgrespro.ru/docs/postgresql/15/runtime-config-resource
+show temp_file_limit;
+-- установим на сессию
+set temp_file_limit=100;
+
+-- work_mem по факту использует тот же механизм при превышении лимита
+set work_mem=64;
+set temp_file_limit=1;
+SELECT * FROM test ORDER by i desc;
+
+-- вернем настройку по умолчанию
+set temp_file_limit=-1;
+
+-- причем в WAL файл генерация значений попадает после окончания транзакции - сразу с десяток файлов)
+
+SELECT relname, n_live_tup, n_dead_tup, trunc(100*n_dead_tup/(n_live_tup+1))::float "ratio%", last_autovacuum 
+FROM pg_stat_user_tables WHERE relname = 'test';
+
+update test set i = i + 1;
+
+-- EXISTS VS IN VS JOIN
+https://www.db-fiddle.com/f/eJDVhb7vccRsuFnDm2cS7H/0
+
+
+gcloud compute instances delete postgres
+
+explain select a.i
+from v1 as a
+;
+
+explain select a.i
+from v1 as a
+where a.i = 2;
+
+CREATE VIEW v3 AS
+SELECT i
+FROM test
+where i = 1;
+
+explain select a.i
+from v3 as a
+where a.i = 2;
+
