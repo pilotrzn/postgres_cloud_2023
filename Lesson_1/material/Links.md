@@ -7,4 +7,4 @@
 - [Как запустить удаленно SSH команды в Linux и показать результат локально](https://andreyex.ru/linux/kak-zapustit-udalenno-ssh-komandy-v-linux-i-pokazat-rezultat-lokalno/)
 
 
-[Назад](README.md)
+[Назад](../README.md)
