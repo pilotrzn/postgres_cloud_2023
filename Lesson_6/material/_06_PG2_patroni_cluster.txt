@@ -1,0 +1,574 @@
+-- ETCD
+-- документация 
+-- https://dreamcatcher.ru/2021/02/15/postgresql-%D0%B8-%D0%BA%D0%BB%D0%B0%D1%81%D1%82%D0%B5%D1%80-patroni/ 
+
+-- Развернем 3 ВМ small для ETCD в зоне europe-west1-b - запрет с мая 2023 года
+--us-west1-b - тож не пустили()
+-- gcloud compute project-info describe --project celtic-house-266612
+for i in {1..3}; do gcloud beta compute --project=celtic-house-266612 instances create etcd$i --zone=us-central1-a --machine-type=e2-small --subnet=default --network-tier=PREMIUM --maintenance-policy=MIGRATE --service-account=933982307116-compute@developer.gserviceaccount.com --scopes=https://www.googleapis.com/auth/cloud-platform --image-family=ubuntu-2004-lts --image-project=ubuntu-os-cloud --boot-disk-size=10GB --boot-disk-type=pd-ssd --boot-disk-device-name=etcd$i --no-shielded-secure-boot --shielded-vtpm --shielded-integrity-monitoring --reservation-affinity=any & done;
+
+-- install etcd
+for i in {1..3}; do gcloud compute ssh etcd$i --command='sudo apt update && sudo apt upgrade -y && sudo apt install -y etcd' & done;
+
+-- если раньше времени завершил баш скрпт
+-- gcloud compute ssh etcd2
+-- sudo dpkg --configure -a
+-- sudo apt install -y etcd
+
+-- проверим, что c etcd
+for i in {1..3}; do gcloud compute ssh etcd$i --command='hostname; ps -aef | grep etcd | grep -v grep' & done;
+
+-- остановим сервисы etcd
+for i in {1..3}; do gcloud compute ssh etcd$i --command='sudo systemctl stop etcd' & done;
+
+-- добавим в файлы с конфигами /etc/default/etcd:
+-- обратите внимание работает только с работающим DNS, иначе IP адреса
+for i in {1..3}; do gcloud compute ssh etcd$i --command='cat > temp.cfg << EOF 
+ETCD_NAME="$(hostname)"
+ETCD_LISTEN_CLIENT_URLS="http://0.0.0.0:2379"
+ETCD_ADVERTISE_CLIENT_URLS="http://$(hostname):2379"
+ETCD_LISTEN_PEER_URLS="http://0.0.0.0:2380"
+ETCD_INITIAL_ADVERTISE_PEER_URLS="http://$(hostname):2380"
+ETCD_INITIAL_CLUSTER_TOKEN="PatroniCluster"
+ETCD_INITIAL_CLUSTER="etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380"
+ETCD_INITIAL_CLUSTER_STATE="new"
+ETCD_DATA_DIR="/var/lib/etcd"
+EOF
+cat temp.cfg | sudo tee -a /etc/default/etcd
+' & done;
+
+-- старт на всех трех 
+for i in {1..3}; do gcloud compute ssh etcd$i --command='sudo systemctl start etcd' & done;
+
+-- проверка автозагрузки
+gcloud compute ssh etcd1
+systemctl is-enabled etcd
+
+-- проверка etcd-кластера:
+etcdctl cluster-health
+
+member 9a1f33941721f94d is healthy: got healthy result from http://etcd1:2379
+member 9df0146dd9068bd2 is healthy: got healthy result from http://etcd3:2379
+member f2aeb69aaf7ffcbf is healthy: got healthy result from http://etcd2:2379
+cluster is healthy
+
+
+-- развернем 3 ВМ для Postgres в зоне europe-north1-a - запрет с мая 2023 года
+-- northamerica-northeast1-a
+for i in {1..3}; do gcloud beta compute --project=celtic-house-266612 instances create pgsql$i --zone=northamerica-northeast1-a --machine-type=e2-small --subnet=default --network-tier=PREMIUM --maintenance-policy=MIGRATE --service-account=933982307116-compute@developer.gserviceaccount.com --scopes=https://www.googleapis.com/auth/cloud-platform --image-family=ubuntu-2004-lts --image-project=ubuntu-os-cloud --boot-disk-size=10GB --boot-disk-type=pd-ssd --boot-disk-device-name=pgsql$i --no-shielded-secure-boot --shielded-vtpm --shielded-integrity-monitoring --reservation-affinity=any & done;
+
+-- установка: постгрес на 3 ВМ
+for i in {1..3}; do gcloud compute ssh pgsql$i --command='sudo apt update && sudo apt upgrade -y -q && echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee -a /etc/apt/sources.list.d/pgdg.list && wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add - && sudo apt-get update && sudo apt -y install postgresql-14' & done;
+
+-- убедимся, что кластера Постгреса стартовали
+for i in {1..3}; do gcloud compute ssh pgsql$i --command='hostname; pg_lsclusters' & done;
+
+-- проверяем доступность c pgsql нод
+gcloud compute ssh pgsql1
+ping etcd1.us-central1-a.c.celtic-house-266612.internal
+
+-- с ноды etcd
+ping pgsql1.northamerica-northeast1-a.c.celtic-house-266612.internal
+
+
+-- Для того, чтобы нам было проще отличить какие команды выполняются на каком сервере и в какой базе в psql, 
+-- можем создадать файл ~/.psqlrc и внесем туда дополнительные параметры:
+-- echo "\set PROMPT1 '%M %n@%/%R%# '" >> ~/.psqlrc
+-- где:
+--  %M - название хоста, с которого мы подключаемся к базе. Если подключение локально через Unix, то будет указано [local].
+--  %n - название пользователя, под которым мы работаем в базе.
+--  %/ - название базы данных, в которой мы работаем.
+
+
+
+-- Патрони
+-- 2 варианта - из исходников на github & pip3 (python) 
+-- 1 вариант, пробовать НЕ будем
+/*
+gcloud compute ssh pgsql1
+sudo su
+mkdir /opt
+cd /opt
+git clone https://github.com/zalando/patroni
+cd patroni/
+python3 setup.py build 
+python3 setup.py install 
+cp /opt/patroni/extras/startup-scripts/patroni.service /etc/systemd/system
+
+проверить ExecStart=/bin/patroni /etc/patroni.yml
+cat /etc/systemd/system/patroni.service | grep ExecStart
+
+-- лучше сделать симлинк: 
+ln -s /usr/local/bin/patroni  /bin/patroni
+ 
+-- удаление экземпляра-по-умолчанию
+systemctl stop postgresql
+su - postgres 
+pg_dropcluster 14 main
+exit
+pip3 install patroni[etcd]
+
+-- на первой ноде нужен бутстрап. использовал шаблон с бутстрапом 
+nano /etc/patroni.yml 
+su - postgres
+patroni  /etc/patroni.yml
+
+systemctl enable patroni 
+systemctl status patroni 
+-- systemctl stop patroni 
+systemctl start patroni 
+patronictl -c /etc/patroni.yml list 
+*/ -- НЕ используем
+
+-- 2 вариант, рабочий
+-- ставим питон на 1 ноде
+sudo apt-get install -y python3 python3-pip git mc
+sudo pip3 install psycopg2-binary 
+
+-- после установки ПО останавливаем и удаляем экземлпяр постгреса который запускается по-умолчанию:
+-- sudo -u postgres pg_ctlcluster 14 main stop
+sudo systemctl stop postgresql@14-main
+sudo -u postgres pg_dropcluster 14 main 
+
+-- убеждемся что их нет
+pg_lsclusters
+
+-- патрони 
+sudo pip3 install patroni[etcd]
+
+-- делаем симлинк
+sudo ln -s /usr/local/bin/patroni /bin/patroni
+
+-- включаем старт сервиса
+sudo nano /etc/systemd/system/patroni.service
+
+-- шаблон один но надо проставить имена и хосты для каждой ноды свои
+-- скачать 1 файл из репы
+-- https://downgit.github.io/#/home
+-- скачиваем с ноута patroni.service
+
+-- с ноута файл postgres0.yml
+sudo nano /etc/patroni.yml
+
+sudo -u postgres patroni /etc/patroni.yml
+-- 2022-04-20 10:11:44,981 INFO: Selected new etcd server http://etcd2:2379
+-- 2022-04-20 10:11:44,998 WARNING: failed to resolve host etcd2: [Errno -3] Temporary failure in name resolution
+
+-- остановим сервисы etcd
+for i in {1..3}; do gcloud compute ssh etcd$i --command='sudo systemctl stop etcd' & done;
+
+-- обновим параметры
+for i in {1..3}; do gcloud compute ssh etcd$i --command='cat > temp2.cfg << EOF 
+ETCD_ADVERTISE_CLIENT_URLS="http://$(hostname).us-central1-a.c.celtic-house-266612.internal:2379"
+EOF
+cat temp2.cfg | sudo tee -a /etc/default/etcd
+' & done;
+
+-- старт на всех трех 
+for i in {1..3}; do gcloud compute ssh etcd$i --command='sudo systemctl start etcd' & done;
+
+-- наконец бутстрапим
+sudo -u postgres patroni /etc/patroni.yml
+-- FileNotFoundError: [Errno 2] No such file or directory: 'pg_ctl'
+-- bin_dir: /usr/lib/postgresql/14/bin
+sudo nano /etc/patroni.yml
+
+sudo -u postgres patroni /etc/patroni.yml
+sudo systemctl is-enabled patroni 
+sudo systemctl enable patroni 
+sudo systemctl start patroni 
+-- sudo systemctl stop patroni 
+sudo patronictl -c /etc/patroni.yml list 
+
+-- on 2 & 3 nodes  
+-- gcloud compute ssh pgsql2
+for i in {2..3}; do gcloud compute ssh pgsql$i --command='sudo apt install -y python3 python3-pip git mc && sudo pip3 install psycopg2-binary && sudo systemctl stop postgresql@14-main && sudo -u postgres pg_dropcluster 14 main && sudo pip3 install patroni[etcd] && sudo ln -s /usr/local/bin/patroni /bin/patroni' & done;
+
+for i in {2..3}; do gcloud compute ssh pgsql$i --command='cat > temp.cfg << EOF 
+[Unit]
+Description=High availability PostgreSQL Cluster
+After=syslog.target network.target
+[Service]
+Type=simple
+User=postgres
+Group=postgres
+ExecStart=/usr/local/bin/patroni /etc/patroni.yml
+KillMode=process
+TimeoutSec=30
+Restart=no
+[Install]
+WantedBy=multi-user.target
+EOF
+cat temp.cfg | sudo tee -a /etc/systemd/system/patroni.service
+' & done;
+
+for i in {2..3}; do gcloud compute ssh pgsql$i --command='cat > temp2.cfg << EOF 
+scope: patroni
+name: $(hostname)
+restapi:
+  listen: $(hostname -I | tr -d " "):8008
+  connect_address: $(hostname -I | tr -d " "):8008
+etcd:
+  hosts: etcd1.us-central1-a.c.celtic-house-266612.internal:2379,etcd2.us-central1-a.c.celtic-house-266612.internal:2379,etcd3.us-central1-a.c.celtic-house-266612.internal:2379
+bootstrap:
+  dcs:
+    ttl: 30
+    loop_wait: 10
+    retry_timeout: 10
+    maximum_lag_on_failover: 1048576
+    postgresql:
+      use_pg_rewind: true
+      parameters:
+  initdb: 
+  - encoding: UTF8
+  - data-checksums
+  pg_hba: 
+  - host replication replicator 10.0.0.0/8 md5
+  - host all all 10.0.0.0/8 md5
+  users:
+    admin:
+      password: admin_321
+      options:
+        - createrole
+        - createdb
+postgresql:
+  listen: 127.0.0.1, $(hostname -I | tr -d " "):5432
+  connect_address: $(hostname -I | tr -d " "):5432
+  data_dir: /var/lib/postgresql/14/main
+  bin_dir: /usr/lib/postgresql/14/bin
+  pgpass: /tmp/pgpass0
+  authentication:
+    replication:
+      username: replicator
+      password: rep-pass_321
+    superuser:
+      username: postgres
+      password: zalando_321
+    rewind:  
+      username: rewind_user
+      password: rewind_password_321
+  parameters:
+    unix_socket_directories: '.'
+tags:
+    nofailover: false
+    noloadbalance: false
+    clonefrom: false
+    nosync: false
+EOF
+cat temp2.cfg | sudo tee -a /etc/patroni.yml
+' & done;
+
+gcloud compute ssh pgsql2
+sudo systemctl enable patroni && sudo systemctl start patroni 
+sudo patronictl -c /etc/patroni.yml list 
+
+-- изменить параметры кластера
+sudo patronictl -c /etc/patroni.yml edit-config
+
+-- !!! обратите внимание, что вносим в секцию postgresql
+
+-- посмотрим изменились ли параметры
+-- https://github.com/zalando/patroni/issues/1149
+-- для walg не забываем про сокет - unix_socket_directories: '/var/run/postgresql/'
+sudo -u postgres psql -W -h localhost -c "show max_connections;"
+show max_connections;
+max_connections 
+sudo patronictl -c /etc/patroni.yml list 
+
+-- *pending restart
+sudo patronictl -c /etc/patroni.yml restart имя_кластера
+sudo patronictl -c /etc/patroni.yml restart patroni
+
+sudo patronictl -c /etc/patroni.yml reload patroni
+
+-- если поломался старый кластер
+patronictl -c /etc/patroni.yml remove 7088634863084761990
+
+-- история
+patronictl -c /etc/patroni.yml history
+
+
+
+-- установим pg_bouncer на каждом хосте с Патрони
+-- https://severalnines.com/database-blog/how-achieve-postgresql-high-availability-pgbouncer
+-- http://www.pgbouncer.org/usage.html
+gcloud compute ssh pgsql1
+
+for i in {1..3}; do gcloud compute ssh pgsql$i --command='sudo apt install -y pgbouncer' & done;
+
+
+for i in {1..3}; do gcloud compute ssh pgsql$i --command='cat > temp3.cfg << EOF 
+[databases]
+otus = host=127.0.0.1 port=5432 dbname=otus 
+[pgbouncer]
+logfile = /var/log/postgresql/pgbouncer.log
+pidfile = /var/run/postgresql/pgbouncer.pid
+listen_addr = *
+listen_port = 6432
+auth_type = md5
+auth_file = /etc/pgbouncer/userlist.txt
+admin_users = admindb
+EOF
+cat temp3.cfg | sudo tee -a /etc/pgbouncer/pgbouncer.ini
+' & done;
+
+-- утилита шифрования пароля в мд5 есть например в поставке pgpool
+-- sudo apt install pgpool2
+-- pg_md5 root123
+-- правильнее брать из таблицы юзеров постгреса (дальше увидим проблему)
+
+for i in {1..3}; do gcloud compute ssh pgsql$i --command='cat > temp4.cfg << EOF 
+"admindb" "d9cfab6a2f1a0eb0c037e605cd578025"
+EOF
+cat temp4.cfg | sudo tee -a /etc/pgbouncer/userlist.txt
+' & done;
+
+for i in {1..3}; do gcloud compute ssh pgsql$i --command='sudo systemctl stop pgbouncer' & done;
+
+
+-- можем запустить в демоне с ключом -d, но это отличный процесс от сервиса
+gcloud compute ssh pgsql1
+sudo -u postgres pgbouncer /etc/pgbouncer/pgbouncer.ini
+sudo systemctl status pgbouncer 
+sudo systemctl enable pgbouncer 
+sudo systemctl start pgbouncer 
+-- sudo systemctl restart pgbouncer 
+
+-- in psql
+sudo su postgres
+-- rm ~/.pgpass
+echo "localhost:5432:postgres:postgres:zalando_321">>~/.pgpass
+chmod 600 ~/.pgpass
+
+psql -h localhost
+create user admindb with password 'root123';
+-- error
+select * from users;
+
+cat /var/lib/postgresql/14/main/pg_hba.conf
+
+nano /etc/pgbouncer/pgbouncer.ini
+
+nano /etc/patroni.yml
+exit
+
+sudo apt install net-tools
+netstat -pltn
+
+
+-- проблема с кодировками паролей в 14 версии
+-- посмотрим на пользователей внутри
+sudo -u postgres psql -h localhost
+select usename,passwd from pg_shadow;
+
+-- можно password_encryption=md5
+sudo nano /etc/pgbouncer/pgbouncer.ini
+admin_users = postgres
+-- admin_users - кто имеет доступ к админке
+
+-- пользователи в userlist - кого пгбаунсер пропускает в постгрес
+-- zalando_321
+sudo nano /etc/pgbouncer/userlist.txt
+"postgres"  "SCRAM-SHA-256$4096:ztlXwOjouhaVeM77AyTJSg==$a21oZyRAOFGLSm0gYk+NSiREXKu0YYlgsciNAC8G3LA=:ojb5J0cjpyX7u+QryqSJ4tVqh9QsrhCQNPdblF0l80s="
+
+sudo -u postgres psql -h localhost -c "CREATE DATABASE otus;"
+sudo -u postgres psql -p 6432 -h 127.0.0.1 otus
+
+
+-- рестарт pg_bouncer, если был запущен как демон
+pgbouncer -R -d /etc/pgbouncer/pgbouncer.ini 
+-- sudo systemctl restart pgbouncer 
+
+-- админка pgbouncer
+sudo -u postgres psql -p 6432 pgbouncer -h localhost
+show clients;
+
+-- нагрузим pgbench с другого хоста
+gcloud compute ssh pgsql2
+sudo -u postgres pgbench -p 6432 -i -d otus -h 10.162.0.5
+
+-- если например укажем другую БД то у нас умрет pgbouncer (запущенный вручную), 
+-- так как мы вроде и суперюзеры и права есть, а в списке настроек нет
+-- sudo -u postgres pgbench -p 6432 -i -d demo -h 10.166.0.8
+-- добавляем сервис 
+-- https://unix.stackexchange.com/questions/289629/systemd-restart-always-is-not-honored
+-- https://www.2ndquadrant.com/en/blog/running-multiple-pgbouncer-instances-with-systemd/ 
+-- п.с. при рестарте сам стартует
+sudo nano /lib/systemd/system/pgbouncer.service
+
+sudo -u postgres pgbench -p 6432 -c 20 -C -T 20 -P 1 -d otus -h 10.162.0.5
+
+-- Просмотр статистики в баунсере
+show servers;
+SHOW STATS_TOTALS;
+show pools;
+
+-- Поставить на паузу коннекты:
+pause otus;
+
+-- Возобновить коннект:
+resume otus;
+
+
+
+
+-- развернем 2 ВМ для HAProxy
+-- http://www.haproxy.org/
+for i in {1..2}; do gcloud beta compute --project=celtic-house-266612 instances create proxy$i --zone=southamerica-east1-b --machine-type=e2-small --subnet=default --network-tier=PREMIUM --maintenance-policy=MIGRATE --service-account=933982307116-compute@developer.gserviceaccount.com --scopes=https://www.googleapis.com/auth/cloud-platform --image-family=ubuntu-2004-lts --image-project=ubuntu-os-cloud --boot-disk-size=10GB --boot-disk-type=pd-ssd --boot-disk-device-name=pgsql$i --no-shielded-secure-boot --shielded-vtpm --shielded-integrity-monitoring --reservation-affinity=any & done;
+
+for i in {1..2}; do gcloud compute ssh proxy$i --command='sudo apt install -y --no-install-recommends software-properties-common && sudo add-apt-repository -y ppa:vbernat/haproxy-2.5 && sudo apt install -y haproxy=2.5.\*' & done;
+
+gcloud compute ssh proxy1
+
+curl -v 10.162.0.5:8008/master
+
+-- протестим доступ
+sudo apt update && sudo apt upgrade -y && sudo apt install -y postgresql-client-common && sudo apt install postgresql-client -y
+psql -p 6432 -d otus -h 10.162.0.5 -U postgres
+
+sudo cat /etc/haproxy/haproxy.cfg
+
+sudo nano /etc/haproxy/haproxy.cfg
+listen postgres_write
+    bind *:5432
+    mode            tcp
+    option httpchk
+    http-check connect
+    http-check send meth GET uri /master
+    http-check expect status 200
+    default-server inter 10s fall 3 rise 3 on-marked-down shutdown-sessions
+    server pgsql1 10.162.0.5:6432 check port 8008
+    server pgsql2 10.162.0.3:6432 check port 8008
+    server pgsql3 10.162.0.4:6432 check port 8008
+
+listen postgres_read
+    bind *:5433
+    mode            tcp
+    http-check connect
+    http-check send meth GET uri /replica
+    http-check expect status 200
+    default-server inter 10s fall 3 rise 3 on-marked-down shutdown-sessions
+    server pgsql1 10.162.0.5:6432 check port 8008
+    server pgsql2 10.162.0.3:6432 check port 8008
+    server pgsql3 10.162.0.4:6432 check port 8008
+
+
+sudo systemctl restart haproxy.service
+sudo systemctl status haproxy.service
+
+sudo cat /var/log/haproxy.log
+-- почему ошибки?????
+
+
+
+
+
+
+
+
+
+
+--pgbouncer то не развернули)
+gcloud compute ssh pgsql2
+sudo -u postgres pgbouncer /etc/pgbouncer/pgbouncer.ini
+
+
+
+psql -h localhost -d otus -U postgres -p 5432
+
+протестим переключение мастера
+patronictl -c /etc/patroni.yml switchover
+patronictl -c /etc/patroni.yml list
+
+
+-- настроим keepalived на хостах с HAproxy
+-- к сожалению работает только с белыми IP
+-- https://dasunhegoda.com/how-to-setup-haproxy-with-keepalived/833/
+-- https://keepalived.readthedocs.io/en/latest/software_design.html
+gcloud compute ssh proxy1
+
+sudo apt install -y keepalived
+
+-- Load balancing in HAProxy also requires the ability to bind to an IP address that are nonlocal, 
+-- meaning that it is not assigned to a device on the local system. Below configuration is added so that 
+-- floating/shared IP can be assigned to one of the load balancers. Below line get it done.
+sudo nano /etc/sysctl.conf
+net.ipv4.ip_nonlocal_bind=1
+
+sudo sysctl -p
+
+-- конфиги локально в файлах keepalived.conf & keepalived2.conf
+-- посмотрим на какой интерфейс нужно добавить ip
+ip a
+
+sudo nano /etc/keepalived/keepalived.conf
+
+sudo service keepalived start
+
+-- посмотрим успешность добавления IP
+ip a
+
+-- но в VPС GCP это не заработает - мультикаст не проходит. С серыми ip гугл не позволяет работать
+sudo apt install net-tools
+arp proxy1
+
+-- варианты OpenVPN в режиме tap или VxLAN с помощью openvswitch например
+
+-- вариант loadbalancer 
+-- https://console.cloud.google.com/net-services/loadbalancing/list/loadBalancers?referrer=search&project=celtic-house-266612
+-- посмотрим бэкенд скрипт
+
+-- вариант разверктки хапрокси+кипэлавд в вагранте через ансиболь
+-- https://github.com/erlong15/vagrant-ansible-haproxy-keepalived
+
+
+
+-- convert standalone cluster
+-- https://patroni.readthedocs.io/en/latest/existing_data.html
+
+
+
+
+-- потестируем отказоустойчивость
+gcloud compute ssh pgsql1
+
+sudo patronictl -c /etc/patroni.yml list 
+
+-- etcd
+gcloud compute ssh etcd1
+-- export ETCDCTL_API=3
+export ETCDCTL_API=2
+etcdctl get service/patroni3/config
+
+-- стартуем еще 1 патрони демон
+sudo cp /etc/patroni.yml /etc/patroni2.yml 
+sudo nano /etc/patroni2.yml 
+sudo pg_createcluster 14 main2
+pg_lsclusters
+sudo pg_ctlcluster 14 main2 start
+sudo -u postgres psql -p 5433
+create database otus_full;
+ALTER USER postgres WITH ENCRYPTED PASSWORD 'zalando_321';
+CREATE USER replicator WITH REPLICATION ENCRYPTED PASSWORD 'rep-pass_321';
+
+sudo -u postgres patroni /etc/patroni2.yml
+
+sudo cat /var/lib/postgresql/14/main2/postgresql.conf
+-- cat: /var/lib/postgresql/14/main2/postgresql.conf: No such file or directory
+
+-- а конфиги то в etc
+sudo cat /etc/postgresql/14/main2/postgresql.conf
+
+sudo nano /etc/patroni2.yml 
+-- PATRONI_POSTGRESQL_CONFIG_DIR
+config_dir: /etc/postgresql/14/main2
+
+sudo -u postgres patroni /etc/patroni2.yml
+
+sudo -u postgres psql -p 5433
+-- could not translate host name "." to address: Temporary failure in name resolution
+
+psql -p 5433 -h localhost
+\l
+
+

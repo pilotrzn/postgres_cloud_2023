@@ -9,3 +9,7 @@
 3. [Настройка PostgreSQL](Lesson_3/README.md)
 
 4. [Профилирование. Мониторинг. Оптимизация](Lesson_4/README.md)
+
+5. [Углубленное изучение бэкапов и репликации](Lesson_5/README.md)
+
+6. [Кластер Patroni on-premise 1](Lesson_6/README.md)

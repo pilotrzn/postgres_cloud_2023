@@ -1,9 +1,9 @@
 # Postgres & Docker
 
-- [Ссылки](Links.md)
+- [Ссылки](material/Links.md)
 
-- [Презентация урока](Docker.pdf)
+- [Презентация урока](material/Docker.pdf)
 
-- [docker-compose](docker_compose.yml)
+- [docker-compose](material/docker_compose.yml)
 
 [Назад](../README.md)
