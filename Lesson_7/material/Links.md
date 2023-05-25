@@ -27,3 +27,5 @@
 - [PgBouncer - restart при падении.](https://www.youtube.com/watch?v=tDX5jmL3L04)
 
 - [Отказоустойчивый кластер Postgresql в связке с patroni+etcd+pgbouncer+haproxy+keepalived](https://www.youtube.com/watch?v=slkA7qJyW3E)
+
+[Назад](../README.md)

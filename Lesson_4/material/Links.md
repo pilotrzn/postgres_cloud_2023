@@ -28,4 +28,4 @@
 - [Как ускорить работу PostgreSQL с помощью конфигурации базы и оптимизации запросов](https://habr.com/ru/companies/southbridge/articles/684826/)
 - [Мониторинг сети Linux](https://losst.pro/monitoring-seti-linux)
 
-[Назад](README.md)
+[Назад](../README.md)
