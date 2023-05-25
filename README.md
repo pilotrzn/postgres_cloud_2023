@@ -13,3 +13,5 @@
 5. [Углубленное изучение бэкапов и репликации](Lesson_5/README.md)
 
 6. [Кластер Patroni on-premise 1](Lesson_6/README.md)
+
+7. [Кластер Patroni on-premise 2](Lesson_7/README.md)

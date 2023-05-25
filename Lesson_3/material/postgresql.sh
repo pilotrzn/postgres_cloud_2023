@@ -11,3 +11,6 @@ sudo psql -U postgres -h 127.0.0.1 -c "alter user postgres with password 'postgr
 #sudo wget https://edu.postgrespro.ru/demo-medium.zip -O /tmp/demo-medium.zip
 #sudo  unzip /tmp/demo-medium.zip -d /tmp/
 #sudo psql -U postgres -h 127.0.0.1 < /tmp/demo-medium-20170815.sql
+
+
+[Назад](../README.md)
