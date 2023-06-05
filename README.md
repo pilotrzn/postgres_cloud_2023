@@ -15,3 +15,9 @@
 6. [Кластер Patroni on-premise 1](Lesson_6/README.md)
 
 7. [Кластер Patroni on-premise 2](Lesson_7/README.md)
+
+8. [Введение в Kubernetes. Часть 1](Lesson_8/README.md)
+
+9. [Введение в Kubernetes. Часть 2](Lesson_9/README.md)
+
+10. [Работа с большим объемом реальных данных](Lesson_10/README.md)
