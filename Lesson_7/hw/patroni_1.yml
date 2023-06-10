@@ -1,6 +1,6 @@
 ---
 
-scope: postgres-cluster
+scope: ya-cloud
 name: pgsql01
 namespace: /service/
 
@@ -18,12 +18,11 @@ log:
     urllib3: WARNING
 
 restapi:
-  listen: 192.168.122.30:8008
-  connect_address: 192.168.122.30:8008
-
+  listen: 10.129.0.15:8008
+  connect_address: 10.129.0.15:8008
 
 etcd:
-  hosts: 192.168.122.32:2379,192.168.122.33:2379,192.168.122.34:2379
+  hosts: 10.129.0.21:2379,10.129.0.10:2379,10.129.0.12:2379
 
 bootstrap:
   method: initdb
@@ -41,14 +40,14 @@ bootstrap:
       use_slots: true
       parameters:
         max_connections: 100
-        shared_buffers : 1536MB
-        effective_cache_size : 4GB
+        shared_buffers : 1024MB
+        effective_cache_size : 3GB
         maintenance_work_mem: 320MB
         wal_buffers: 8MB
-        wal_keep_size: 1GB
+        wal_keep_size: 2GB
         work_mem: 32MB
-        min_wal_size: 2GB
-        max_wal_size: 8GB
+        min_wal_size: 1GB
+        max_wal_size: 4GB
         huge_pages: off
         max_worker_processes: 4
         max_parallel_workers: 4
@@ -64,7 +63,8 @@ bootstrap:
         autovacuum_vacuum_threshold: 20
         wal_writer_delay : 200ms
         wal_writer_flush_after : 1MB
-      
+        random_page_cost: 1.25
+        effective_io_concurrency: 200
         superuser_reserved_connections: 4
         password_encryption: md5
         max_locks_per_transaction: 64
@@ -119,34 +119,26 @@ bootstrap:
         wal_receiver_status_interval: 10s
         jit: off
         lc_messages: en_US.UTF-8
-        lc_monetary: ru_RU.UTF-8
-        lc_numeric: ru_RU.UTF-8
-        lc_time: ru_RU.UTF-8
-        effective_io_concurrency: 200
-        log_directory: /var/lib/pgsql/pgsql-14/log
+        log_directory: /var/lib/postgresql/14/log
 
-
-  initdb:  # List options to be passed on to initdb
+initdb:  # List options to be passed on to initdb
     - encoding: UTF8
     - locale: en_US.UTF-8
     - data-checksums
 
-  pg_hba:  # Add following lines to pg_hba.conf after running 'initdb'
-    - host replication replicator 192.168.122.30/32 md5
-    - host replication replicator 192.168.122.31/32 md5
+pg_hba:  # Add following lines to pg_hba.conf after running 'initdb'
+    - host replication replicator 10.129.0.15/32 md5
+    - host replication replicator 10.129.0.17/32 md5
     - host all all 0.0.0.0/0 md5
 
-
 postgresql:
-  listen: 192.168.122.30,192.168.122.35,127.0.0.1:5432
-  connect_address: 192.168.122.30:5432
+  listen: 10.129.0.15,127.0.0.1:5432
+  connect_address: 10.129.0.15:5432
   use_unix_socket: true
-
-  data_dir: /var/lib/pgsql/pgsql-14/data
-  bin_dir: /usr/bin
-  config_dir: /var/lib/pgsql/pgsql-14/data
-  pgpass: /var/lib/pgsql/.pgpass_patroni
-
+  data_dir: /var/lib/postgresql/14/data
+  bin_dir: /usr/lib/postgresql/14/bin
+  config_dir: /var/lib/postgresql/14/data
+  pgpass: /var/lib/postgresql/.pgpass_patroni
 
   authentication:
     replication:
@@ -155,16 +147,15 @@ postgresql:
     superuser:
       username: "postgres"
       password: "postgrespass"
-    rewind: 
+    rewind:
       username: "rewind_user"
       password: "rewind"
   parameters:
-    unix_socket_directories: /tmp
+    unix_socket_directories: /var/run/postgresql
 
 
   remove_data_directory_on_rewind_failure: false
   remove_data_directory_on_diverged_timelines: false
-
 
   create_replica_methods:
     - basebackup
@@ -173,17 +164,8 @@ postgresql:
     checkpoint: 'fast'
 
 
-#watchdog:
-#  mode: automatic  # Allowed values: off, automatic, required
-#  device: /dev/watchdog  # Path to the watchdog device
-#  safety_margin: 5
-
 tags:
   nofailover: false
   noloadbalance: false
   clonefrom: false
   nosync: false
-
-  # specify a node to replicate from (cascading replication)
-#  replicatefrom: (node name)
-
