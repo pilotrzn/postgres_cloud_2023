@@ -1,4 +1,25 @@
-# Настройка pgbouncer и haproxy
+# Настройка pgbouncer
+
+## Создание бд для примеров
+
+Для демонстрации работы в postgres создадим пользователей и базы:
+
+roles
+
+```sql
+postgres=# create role user1 login inherit password '123';
+postgres=# create role user2 login inherit password '123';
+postgres=# create role user3 login inherit password '123';
+```
+
+databases
+
+```sql
+postgres=# create database db1;
+postgres=# create database db2 owner user2;
+postgres=# create database db3 owner user3;
+```
+***
 
 ## Установка
 На каждом сервере с БД postgres так же установлен сервиc pgbouncer
@@ -50,12 +71,18 @@ WantedBy=multi-user.target
 
 ## Конфигурация
 
+Для удобства администрирования секцию databases можно вынести в отдельный файл,в ini добавить include.
+
+
 ```bash
 cat /etc/pgbouncer/pgbouncer.ini 
 [databases]
-postgres = host=127.0.0.1 port=5432 dbname=postgres 
 
-* = host=127.0.0.1 port=5432
+postgres = host=127.0.0.1 port=5432 dbname=postgres 
+db1 = host=127.0.0.1 port=5432 dbname=db1
+db2 = host=127.0.0.1 port=5432 dbname=db2
+db3 = host=127.0.0.1 port=5432 dbname=db3
+
 
 [pgbouncer]
 logfile = /var/log/pgbouncer/pgbouncer.log
@@ -108,11 +135,55 @@ $ select usename,passwd from pg_shadow ;
 $ echo -n "md5"; echo -n "password123admin" | md5sum | awk '{print $1}'
 ```
 
-в данной команде необходимо написать пароль и имя пользователя слитно
+В данной команде необходимо написать пароль и имя пользователя слитно
+
+Вариант наполнения файла userlist:
+
+```text
+"postgres" "postgrespass"
+"user1" "md5b17de164c65acfe9da9d8ca1a331cec1"
+"user2" "md5245a2b356234ce1ea772e164e596f395"
+"user3" "md5a668e2d5689fb7624bd7da83b26be6cc"
+```
 
 
+***
 
+## Проверка и доступ к админке
 
+Чтобы проверить, что наши базы доступны для подключения через pgbouncer к админке:
+
+```sql
+postgres@pgsql02:~$ psql -p 6432 pgbouncer
+Password for user postgres: 
+psql (14.8 (Ubuntu 14.8-1.pgdg20.04+1), server 1.19.0/bouncer)
+Type "help" for help.
+
+pgbouncer=#
+```
+ 
+Чтобы подключаться без ввода пароля добавим запись в файл .pgpass:
+
+```text
+localhost:6432:*:postgres:postgrespass
+```
+
+В админке запросим список всех БД:
+
+```sql
+pgbouncer=# show databases;
+  name    |   host    | port | database  | force_user | pool_size | min_pool_size | reserve_pool | pool_mode | max_connections | current_connections | paused | disabled 
+-----------+-----------+------+-----------+------------+-----------+---------------+--------------+-----------+-----------------+---------------------+--------+----------
+ db1       | 127.0.0.1 | 5432 | db1       |            |        20 |             0 |            1 |           |            1000 |                   0 |      0 |        0
+ db2       | 127.0.0.1 | 5432 | db2       |            |        20 |             0 |            1 |           |            1000 |                   0 |      0 |        0
+ db3       | 127.0.0.1 | 5432 | db3       |            |        20 |             0 |            1 |           |            1000 |                   0 |      0 |        0
+ pgbouncer |           | 6432 | pgbouncer | pgbouncer  |         2 |             0 |            0 | statement |            1000 |                   0 |      0 |        0
+ postgres  | 127.0.0.1 | 5432 | postgres  |            |        20 |             0 |            1 |           |            1000 |                   0 |      0 |        0
+(5 rows)
+```
+***
+
+pgbouncer так устроен, - чтобы появился доступ к какой-либо бд через pgbouncer, сначала нужно добавить запись в databases и выполнить рестарт сервиса.
 
 
 

@@ -16,7 +16,8 @@
 
 - [Кластер etcd](etcd.md)
 - [Кластер patroni](patroni.md)
-- [pgbouncer и haproxy](pgbouncer.md)
+- [pgbouncer](pgbouncer.md)
+- [HAproxy]()
 - [Тесты отказоустойчивости](tests.md)
 
 - [Назад](../README.md)
