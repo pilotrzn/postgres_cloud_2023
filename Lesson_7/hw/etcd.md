@@ -14,12 +14,12 @@ $ sudo apt install etcd
 
 ```
 ETCD_NAME="etcd01"
-ETCD_LISTEN_CLIENT_URLS="http://10.129.0.21:2379,http://127.0.0.1:2379"
-ETCD_ADVERTISE_CLIENT_URLS="http://10.129.0.21:2379"
-ETCD_LISTEN_PEER_URLS="http://10.129.0.21:2380"
-ETCD_INITIAL_ADVERTISE_PEER_URLS="http://10.129.0.21:2380"
+ETCD_LISTEN_CLIENT_URLS="http://192.168.122.55:2379,http://127.0.0.1:2379"
+ETCD_ADVERTISE_CLIENT_URLS="http://192.168.122.55:2379"
+ETCD_LISTEN_PEER_URLS="http://192.168.122.55:2380"
+ETCD_INITIAL_ADVERTISE_PEER_URLS="http://192.168.122.55:2380"
 ETCD_INITIAL_CLUSTER_TOKEN="etcd-postgres-cluster"
-ETCD_INITIAL_CLUSTER="etcd01=http://10.129.0.21:2380,etcd02=http://10.129.0.10:2380,etcd03=http://10.129.0.12:2380"
+ETCD_INITIAL_CLUSTER="etcd01=http://192.168.122.55:2380,etcd02=http://192.168.122.56:2380,etcd03=http://192.168.122.57:2380"
 ETCD_INITIAL_CLUSTER_STATE="new"
 ETCD_DATA_DIR="/var/lib/etcd"
 ETCD_ELECTION_TIMEOUT="5000"
@@ -32,12 +32,12 @@ ETCD_ENABLE_V2=true
 
 ```
 ETCD_NAME="etcd02"
-ETCD_LISTEN_CLIENT_URLS="http://10.129.0.10:2379,http://127.0.0.1:2379"
-ETCD_ADVERTISE_CLIENT_URLS="http://10.129.0.10:2379"
-ETCD_LISTEN_PEER_URLS="http://10.129.0.10:2380"
-ETCD_INITIAL_ADVERTISE_PEER_URLS="http://10.129.0.10:2380"
+ETCD_LISTEN_CLIENT_URLS="http://192.168.122.56:2379,http://127.0.0.1:2379"
+ETCD_ADVERTISE_CLIENT_URLS="http://192.168.122.56:2379"
+ETCD_LISTEN_PEER_URLS="http://192.168.122.56:2380"
+ETCD_INITIAL_ADVERTISE_PEER_URLS="http://192.168.122.56:2380"
 ETCD_INITIAL_CLUSTER_TOKEN="etcd-postgres-cluster"
-ETCD_INITIAL_CLUSTER="etcd01=http://10.129.0.21:2380,etcd02=http://10.129.0.10:2380,etcd03=http://10.129.0.12:2380"
+ETCD_INITIAL_CLUSTER="etcd01=http://192.168.122.55:2380,etcd02=http://192.168.122.56:2380,etcd03=http://192.168.122.57:2380"
 ETCD_INITIAL_CLUSTER_STATE="new"
 ETCD_DATA_DIR="/var/lib/etcd"
 ETCD_ELECTION_TIMEOUT="5000"
@@ -50,12 +50,12 @@ ETCD_ENABLE_V2=true
 
 ```
 ETCD_NAME="etcd03"
-ETCD_LISTEN_CLIENT_URLS="http://10.129.0.12:2379,http://127.0.0.1:2379"
-ETCD_ADVERTISE_CLIENT_URLS="http://10.129.0.12:2379"
-ETCD_LISTEN_PEER_URLS="http://10.129.0.12:2380"
-ETCD_INITIAL_ADVERTISE_PEER_URLS="http://10.129.0.12:2380"
+ETCD_LISTEN_CLIENT_URLS="http://192.168.122.57:2379,http://127.0.0.1:2379"
+ETCD_ADVERTISE_CLIENT_URLS="http://192.168.122.57:2379"
+ETCD_LISTEN_PEER_URLS="http://192.168.122.57:2380"
+ETCD_INITIAL_ADVERTISE_PEER_URLS="http://192.168.122.57:2380"
 ETCD_INITIAL_CLUSTER_TOKEN="etcd-postgres-cluster"
-ETCD_INITIAL_CLUSTER="etcd01=http://10.129.0.21:2380,etcd02=http://10.129.0.10:2380,etcd03=http://10.129.0.12:2380"
+ETCD_INITIAL_CLUSTER="etcd01=http://192.168.122.55:2380,etcd02=http://192.168.122.56:2380,etcd03=http://192.168.122.57:2380"
 ETCD_INITIAL_CLUSTER_STATE="new"
 ETCD_DATA_DIR="/var/lib/etcd"
 ETCD_ELECTION_TIMEOUT="5000"
@@ -76,9 +76,9 @@ $ sudo systemctl enable --now etcd.service
 #!/bin/bash
 
 export ETCDCTL_API=3
-HOST_1=10.129.0.21
-HOST_2=10.129.0.10
-HOST_3=10.129.0.12
+HOST_1=192.168.122.55
+HOST_2=192.168.122.56
+HOST_3=192.168.122.57
 ENDPOINTS=$HOST_1:2379,$HOST_2:2379,$HOST_3:2379
 etcdctl --write-out=table --endpoints=$ENDPOINTS member list
 etcdctl --write-out=table --endpoints=$ENDPOINTS endpoint status
@@ -91,16 +91,16 @@ etcdctl --write-out=table --endpoints=$ENDPOINTS endpoint status
 +------------------+---------+--------+-------------------------+-------------------------+
 |        ID        | STATUS  |  NAME  |       PEER ADDRS        |      CLIENT ADDRS       |
 +------------------+---------+--------+-------------------------+-------------------------+
-|  e4e7bb124be494a | started | etcd01 | http://10.129.0.21:2380 | http://10.129.0.21:2379 |
-| 1783ba84822970d4 | started | etcd03 | http://10.129.0.12:2380 | http://10.129.0.12:2379 |
-| 3ec22bdc73937461 | started | etcd02 | http://10.129.0.10:2380 | http://10.129.0.10:2379 |
+|  e4e7bb124be494a | started | etcd01 | http://192.168.122.55:2380 | http://192.168.122.55:2379 |
+| 1783ba84822970d4 | started | etcd03 | http://192.168.122.57:2380 | http://192.168.122.57:2379 |
+| 3ec22bdc73937461 | started | etcd02 | http://192.168.122.56:2380 | http://192.168.122.56:2379 |
 +------------------+---------+--------+-------------------------+-------------------------+
 +------------------+------------------+---------+---------+-----------+-----------+------------+
 |     ENDPOINT     |        ID        | VERSION | DB SIZE | IS LEADER | RAFT TERM | RAFT INDEX |
 +------------------+------------------+---------+---------+-----------+-----------+------------+
-| 10.129.0.21:2379 |  e4e7bb124be494a |  3.2.26 |   25 kB |     false |         2 |      18310 |
-| 10.129.0.10:2379 | 3ec22bdc73937461 |  3.2.26 |   25 kB |     false |         2 |      18310 |
-| 10.129.0.12:2379 | 1783ba84822970d4 |  3.2.26 |   25 kB |      true |         2 |      18310 |
+| 192.168.122.55:2379 |  e4e7bb124be494a |  3.2.26 |   25 kB |     false |         2 |      18310 |
+| 192.168.122.56:2379 | 3ec22bdc73937461 |  3.2.26 |   25 kB |     false |         2 |      18310 |
+| 192.168.122.57:2379 | 1783ba84822970d4 |  3.2.26 |   25 kB |      true |         2 |      18310 |
 +------------------+------------------+---------+---------+-----------+-----------+------------+
 ```
 

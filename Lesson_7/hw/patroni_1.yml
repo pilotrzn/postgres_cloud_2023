@@ -18,11 +18,11 @@ log:
     urllib3: WARNING
 
 restapi:
-  listen: 10.129.0.15:8008
-  connect_address: 10.129.0.15:8008
+  listen: 192.168.122.50:8008
+  connect_address: 192.168.122.50:8008
 
 etcd:
-  hosts: 10.129.0.21:2379,10.129.0.10:2379,10.129.0.12:2379
+  hosts: 192.168.122.55:2379,192.168.122.56:2379,192.168.122.57:2379
 
 bootstrap:
   method: initdb
@@ -127,13 +127,14 @@ initdb:  # List options to be passed on to initdb
     - data-checksums
 
 pg_hba:  # Add following lines to pg_hba.conf after running 'initdb'
-    - host replication replicator 10.129.0.15/32 md5
-    - host replication replicator 10.129.0.17/32 md5
+    - host replication replicator 192.168.122.50/32 md5
+    - host replication replicator 192.168.122.51/32 md5
+    - host replication replicator 192.168.122.52/32 md5
     - host all all 0.0.0.0/0 md5
 
 postgresql:
-  listen: 10.129.0.15,127.0.0.1:5432
-  connect_address: 10.129.0.15:5432
+  listen: 192.168.122.50,127.0.0.1:5432
+  connect_address: 192.168.122.50:5432
   use_unix_socket: true
   data_dir: /var/lib/postgresql/14/data
   bin_dir: /usr/lib/postgresql/14/bin
@@ -153,7 +154,6 @@ postgresql:
   parameters:
     unix_socket_directories: /var/run/postgresql
 
-
   remove_data_directory_on_rewind_failure: false
   remove_data_directory_on_diverged_timelines: false
 
@@ -162,7 +162,6 @@ postgresql:
   basebackup:
     max-rate: '100M'
     checkpoint: 'fast'
-
 
 tags:
   nofailover: false

@@ -9,11 +9,28 @@ postgres@pgsql01:~$ patronictl -c /etc/patroni/patroni.yml list
 + Cluster: ya-cloud ----+--------------+---------+----+-----------+
 | Member  | Host        | Role         | State   | TL | Lag in MB |
 +---------+-------------+--------------+---------+----+-----------+
-| pgsql01 | 10.129.0.15 | Leader       | running |  1 |           |
-| pgsql02 | 10.129.0.17 | Sync Standby | running |  1 |         0 |
-| pgsql03 | 10.129.0.22 | Replica      | running |  1 |         0 |
+| pgsql01 |192.168.122.50 | Leader       | running |  1 |           |
+| pgsql02 |192.168.122.51 | Sync Standby | running |  1 |         0 |
+| pgsql03 |192.168.122.52 | Replica      | running |  1 |         0 |
 +---------+-------------+--------------+---------+----+-----------+
 ```
+
+Проверяем подключение через haproxy и состояние сервера:
+
+```sql
+$ psql -h 192.168.122.53 -U user1 -p 5000 -d mb4
+psql (14.8 (Ubuntu 14.8-0ubuntu0.22.04.1))
+Type "help" for help.
+
+mb4=> select pg_is_in_recovery();
+ pg_is_in_recovery
+-------------------
+ f
+(1 row)
+```
+
+Видим, что подключены к мастеру.
+***
 
 Отправляем на перезагрузку мастер:
 
@@ -23,9 +40,9 @@ postgres@pgsql02:~$ patronictl -c /etc/patroni/patroni.yml list
 + Cluster: ya-cloud ----+---------+---------+----+-----------+
 | Member  | Host        | Role    | State   | TL | Lag in MB |
 +---------+-------------+---------+---------+----+-----------+
-| pgsql01 | 10.129.0.15 | Replica | stopped |    |   unknown |
-| pgsql02 | 10.129.0.17 | Leader  | running |  1 |           |
-| pgsql03 | 10.129.0.22 | Replica | running |  1 |         0 |
+| pgsql01 |192.168.122.50 | Replica | stopped |    |   unknown |
+| pgsql02 |192.168.122.51 | Leader  | running |  1 |           |
+| pgsql03 |192.168.122.52 | Replica | running |  1 |         0 |
 +---------+-------------+---------+---------+----+-----------+
 ```
 - через некоторое время видим следующее состояние:
@@ -34,11 +51,32 @@ postgres@pgsql02:~$ patronictl -c /etc/patroni/patroni.yml list
 + Cluster: ya-cloud ----+--------------+---------+----+-----------+
 | Member  | Host        | Role         | State   | TL | Lag in MB |
 +---------+-------------+--------------+---------+----+-----------+
-| pgsql01 | 10.129.0.15 | Replica      | running |  2 |         0 |
-| pgsql02 | 10.129.0.17 | Leader       | running |  2 |           |
-| pgsql03 | 10.129.0.22 | Sync Standby | running |  2 |         0 |
+| pgsql01 |192.168.122.50 | Replica      | running |  2 |         0 |
+| pgsql02 |192.168.122.51 | Leader       | running |  2 |           |
+| pgsql03 |192.168.122.52 | Sync Standby | running |  2 |         0 |
 +---------+-------------+--------------+---------+----+-----------+
 ```
+
+Проверяем состояние подключения:
+
+```sql
+mb4=> select pg_is_in_recovery();
+server closed the connection unexpectedly
+        This probably means the server terminated abnormally
+        before or while processing the request.
+The connection to the server was lost. Attempting reset: Succeeded.
+mb4=> select pg_is_in_recovery();
+ pg_is_in_recovery
+-------------------
+ f
+(1 row)
+
+mb4=>
+```
+
+Видно, что произошло переключение и снова подключены к мастеру.
+***
+
 
 При отключении мастера, синхронная реплика стала мастером, асинхронная реплика через некоторое время "догнала" новый мастер и стала синхронной. Восстановишийся после перезагрузки бывший мастер стал асинхронной репликой.
 

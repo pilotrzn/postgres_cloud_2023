@@ -3,7 +3,7 @@
 
 - [Список задач](Task.md)
 
-Работы по развертыванию кластера patroni будут выполнены на Яндекс cloud.
+Работы по развертыванию кластера patroni будут выполнены на ВМ Ubuntu 20.04.
 Создано:
 -  3 ВМ для etcd;
 -  3 ВМ для postgres/patroni/pgbouncer. Для ВМ с postgres так же создан дополнительный диск на 20 Гб для хранения каталога с БД.
@@ -17,7 +17,7 @@
 - [Кластер etcd](etcd.md)
 - [Кластер patroni](patroni.md)
 - [pgbouncer](pgbouncer.md)
-- [HAproxy]()
+- [HAproxy](haproxy.md)
 - [Тесты отказоустойчивости](tests.md)
 
 - [Назад](../README.md)

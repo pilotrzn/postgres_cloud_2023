@@ -2,24 +2,16 @@
 
 ## Создание бд для примеров
 
-Для демонстрации работы в postgres создадим пользователей и базы:
-
-roles
+Перед тем, как приступить к установке и настройке создадим в postgres пользователя и базу:
 
 ```sql
 postgres=# create role user1 login inherit password 'user1';
-```
-
-databases
-
-```sql
 postgres=# create database mb4 owner user1;
 ```
 ***
 
 ## Установка
-На каждом сервере с БД postgres так же установлен сервиc pgbouncer
-Пакет pgbouncer доступен в репозитории:
+На каждом сервере с БД postgres устанавливаем сервиc pgbouncer. Пакет pgbouncer доступен в репозитории:
 
 ```bash
 $ sudo apt install pgbouncer
@@ -27,7 +19,7 @@ $ sudo apt install pgbouncer
 ***
 
 ## Каталоги
-Созданы каталоги для конфигурации и логов:
+Создаем каталоги для конфигурации и логов, даем права пользователю postgres:
 
 - pgbouncer_conf_dir: "/etc/pgbouncer"
 - pgbouncer_log_dir: "/var/log/pgbouncer"
@@ -35,7 +27,7 @@ $ sudo apt install pgbouncer
 
 ## Сервис
 
-Скорректирован фалй сервиса:
+Скорректируем файл сервиса:
 
 ```text
 [Unit]
@@ -69,13 +61,12 @@ WantedBy=multi-user.target
 
 Для удобства администрирования секцию databases можно вынести в отдельный файл,в ini добавить include.
 
-
 ```bash
 cat /etc/pgbouncer/pgbouncer.ini 
 [databases]
 
 postgres = host=127.0.0.1 port=5432 dbname=postgres
-mb4_write = host=192.168.122.50 port=5432 dbname=mb4
+mb4 = host=192.168.122.50 port=5432 dbname=mb4
 
 [pgbouncer]
 logfile = /var/log/pgbouncer/pgbouncer.log
@@ -121,6 +112,11 @@ log_disconnections = 0
 ```sql
 $ select usename,passwd from pg_shadow ;
 ```
+  или
+
+```sql
+$ SELECT rolname, rolpassword from pg_authid;
+```
 
 - выполнить команду:
 
@@ -136,7 +132,6 @@ $ echo -n "md5"; echo -n "password123admin" | md5sum | awk '{print $1}'
 "postgres" "md5c1f7bc6fc1857af0806e7858e6e38484"
 "user1" "md57d1b5a4329b6478e976508ab9a49ee3d"
 ```
-
 ***
 
 ## Проверка и доступ к админке
@@ -144,7 +139,7 @@ $ echo -n "md5"; echo -n "password123admin" | md5sum | awk '{print $1}'
 Чтобы проверить, что наши базы доступны для подключения через pgbouncer к админке:
 
 ```sql
-postgres@pgsql02:~$ psql -p 6432 -U postgres pgbouncer
+postgres@pgsql01:~$ psql -p 6432 -U postgres pgbouncer
 Password for user postgres: 
 psql (14.8 (Ubuntu 14.8-1.pgdg20.04+1), server 1.19.0/bouncer)
 Type "help" for help.
@@ -164,7 +159,7 @@ localhost:6432:*:postgres:postgrespass
 pgbouncer=# show databases;
    name    |      host      | port | database  | force_user | pool_size | min_pool_size | reserve_pool | pool_mode | max_connections | current_connections | paused | disabled
 -----------+----------------+------+-----------+------------+-----------+---------------+--------------+-----------+-----------------+---------------------+--------+----------
- mb_write  | 192.168.122.52 | 5432 | mb4       |            |        20 |             0 |            1 |           |            1000 |                   1 |      0 |        0
+ mb4 | 192.168.122.50 | 5432 | mb4       |            |        20 |             0 |            1 |           |            1000 |                   1 |      0 |        0
  pgbouncer |                | 6432 | pgbouncer | pgbouncer  |         2 |             0 |            0 | statement |            1000 |                   0 |      0 |        0
  postgres  | 127.0.0.1      | 5432 | postgres  |            |        20 |             0 |            1 |           |            1000 |                   0 |      0 |        0
 (3 rows)
