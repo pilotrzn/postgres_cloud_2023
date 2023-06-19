@@ -109,4 +109,5 @@ etcdctl --write-out=table --endpoints=$ENDPOINTS endpoint status
 После завершения настройки резкомендуется сменить параметр ETCD_INITIAL_CLUSTER_STATE с new на existing.
 Делается во избежание "рассыпания" кластера если одна из нод упадет. после старта нода не сможет подключиться к существующему кластеру.
 
+***
 - [Назад](README.md)

@@ -88,6 +88,6 @@ postgres@pgsql01:~$ patronictl -c /etc/patroni/patroni.yml list
 - synchronous_node_count: 1
 
 Это означает, что у нас синхронная репликация для 1 ноды(отмечена Sync Standby). Остальные возможные ноды будут в асинхронном режиме.
-
+***
 
 - [Назад](README.md)

@@ -8,7 +8,6 @@
 -  3 ВМ для etcd;
 -  3 ВМ для postgres/patroni/pgbouncer. Для ВМ с postgres так же создан дополнительный диск на 20 Гб для хранения каталога с БД.
 - 1 ВМ для haproxy;
-- 1 ВМ для pg_probackup.
 
 На всех ВМ используется ОС Ubuntu 20.04.
 
@@ -19,5 +18,6 @@
 - [pgbouncer](pgbouncer.md)
 - [HAproxy](haproxy.md)
 - [Тесты отказоустойчивости](tests.md)
+- [Резервное копирование](backup.md)
 
 - [Назад](../README.md)
