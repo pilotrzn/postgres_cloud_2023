@@ -48,7 +48,7 @@ ExecStart=/usr/sbin/pgbouncer -d {{ pgbouncer_conf_dir }}/pgbouncer.ini
 
 ExecReload=/bin/kill -SIGHUP $MAINPID
 PIDFile=/run/pgbouncer/pgbouncer.pid
-Restart=always
+Restart=on-failure
 
 LimitNOFILE=100000
 
