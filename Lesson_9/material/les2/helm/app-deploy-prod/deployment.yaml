@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: pg-deployment-prod
+spec:
+    replicas: 2
+    selector:
+       matchLabels:
+          app: pg-app-prod
+    template:
+       metadata:
+          labels:
+             app: pg-app-prod
+       spec:
+          containers:
+          - name: pg-app-prod
+            image: pg_kub2_postgres:v1
+            env:
+              - name: DATABASE_URI
+                valueFrom:
+                  secretKeyRef:
+                    name: pg-secret-prod
+                    key: DATABASE_URI
+              - name: GREETING
+                valueFrom:
+                  configMapKeyRef:
+                    name: pg-config-prod
+                    key: GREETING
+            ports:
+              - name: web
+                containerPort: 80
+

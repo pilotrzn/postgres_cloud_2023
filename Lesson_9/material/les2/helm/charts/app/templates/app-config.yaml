@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-{{ include "app-chart.fullname" . }} 
+data:
+  GREETING: {{ .Values.greeting }} 
+

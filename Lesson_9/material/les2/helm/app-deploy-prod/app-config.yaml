@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pg-config-prod
+data:
+  GREETING: Bonjour from prod
+

@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: statefulset-app
+spec:
+  serviceName: statefulset-service
+  replicas: 2
+  selector:
+    matchLabels:
+      app: statefulset-app
+  template:
+    metadata:
+      labels:
+        app: statefulset-app
+    spec:
+      containers:
+          - name: app
+            image: pg_kub2_pers:v1            
+            ports:
+              - name: web
+                containerPort: 80
+            volumeMounts:
+              - name: state-storage
+                mountPath: /storage/
+  volumeClaimTemplates:
+  - metadata:
+      name: state-storage
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: standard
+      resources:
+        requests:
+          storage: 50Mi

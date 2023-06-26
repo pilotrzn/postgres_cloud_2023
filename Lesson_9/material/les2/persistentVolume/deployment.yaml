@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: persistent
+spec:
+    replicas: 2
+    selector:
+       matchLabels:
+          app: persistent-app
+    template:
+       metadata:
+          labels:
+             app: persistent-app
+       spec:
+          containers:
+          - name: app
+            image: pg_kub2_pers:v1            
+            ports:
+              - name: web
+                containerPort: 80
+            volumeMounts:
+              - name: storage
+                mountPath: /storage/
+          volumes:
+          - name: storage
+            persistentVolumeClaim:
+              claimName: storage
+

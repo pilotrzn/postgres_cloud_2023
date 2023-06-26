@@ -1,0 +1,14 @@
+replicaCount: 1
+
+greeting: hello from dev
+
+image:
+  repository: pg_kub2_postgres:v1
+
+postgresql:
+  user: myuser
+  password: passwd
+  db: myapp
+  host: "postgres-dev"
+  port: "5432"
+

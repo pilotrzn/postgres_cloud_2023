@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: deployment-{{ include "app-chart.fullname" . }} 
+spec:
+    replicas: {{ .Values.replicaCount }}
+    selector:
+       matchLabels:
+          {{- include "app-chart.selectorLabels" . | nindent 12 }} 
+    template:
+       metadata:
+          labels:
+             {{- include "app-chart.selectorLabels" . | nindent 16 }} 
+       spec:
+          containers:
+          - name: {{ .Chart.Name }} 
+            image: {{ .Values.image.repository }}
+            env:
+              - name: DATABASE_URI
+                valueFrom:
+                  secretKeyRef:
+                    name: secret-{{ include "app-chart.fullname" . }} 
+                    key: DATABASE_URI
+              - name: GREETING
+                valueFrom:
+                  configMapKeyRef:
+                    name: config-{{ include "app-chart.fullname" . }} 
+                    key: GREETING
+            ports:
+              - name: web
+                containerPort: 80
+

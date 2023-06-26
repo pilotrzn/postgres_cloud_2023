@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-{{ include "app-chart.fullname" . }} 
+spec:
+  selector:
+    {{- include "app-chart.selectorLabels" . | nindent 4 }} 
+  ports:
+    - protocol: TCP
+      port: 9000
+      targetPort: web
+  type: NodePort
+
