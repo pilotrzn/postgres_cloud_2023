@@ -22,7 +22,7 @@ $ sudo mkdir -p /etc/clickhouse-server/{config.d,users.d}
 
 Добавим конфигурационные файлы в созданные каталоги
 
-### Доступ к серверу - возможность подклчаться удаленно клиентом.
+### Доступ к серверу - возможность подключаться удаленно клиентом или dbeaver.
 
 ```bash
 $ cat /etc/clickhouse-server/config.d/listen.xml 
@@ -33,7 +33,7 @@ $ cat /etc/clickhouse-server/config.d/listen.xml
 </clickhouse>
 ```
 
-### Пользователь dbadmin
+### Пользователь myuser
 
 ```bash
 $ cat /etc/clickhouse-server/users.d/dbuser.xml
