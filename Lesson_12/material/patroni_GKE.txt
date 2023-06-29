@@ -1,0 +1,119 @@
+-- Patroni GKE - уменьшаем мощность машины и указываем только 1 зону 1 региона
+
+-- --cluster-version "1.21.5-gke.1302" (21/11/18)
+-- need to update in time
+-- --cluster-version "1.22.8-gke.201" (22/06/06)
+-- e2-medium, 30Gb
+gcloud beta container --project "celtic-house-266612" clusters create "patroni" --zone "us-central1-c" --no-enable-basic-auth --cluster-version "1.22.8-gke.201" --release-channel "regular" --machine-type "e2-medium" --image-type "COS_CONTAINERD" --disk-type "pd-standard" --disk-size "30" --metadata disable-legacy-endpoints=true --scopes "https://www.googleapis.com/auth/devstorage.read_only","https://www.googleapis.com/auth/logging.write","https://www.googleapis.com/auth/monitoring","https://www.googleapis.com/auth/servicecontrol","https://www.googleapis.com/auth/service.management.readonly","https://www.googleapis.com/auth/trace.append" --max-pods-per-node "110" --preemptible --num-nodes "3" --logging=SYSTEM,WORKLOAD --monitoring=SYSTEM --enable-ip-alias --network "projects/celtic-house-266612/global/networks/default" --subnetwork "projects/celtic-house-266612/regions/us-central1/subnetworks/default" --no-enable-intra-node-visibility --default-max-pods-per-node "110" --no-enable-master-authorized-networks --addons HorizontalPodAutoscaling,HttpLoadBalancing,GcePersistentDiskCsiDriver --enable-autoupgrade --enable-autorepair --max-surge-upgrade 1 --max-unavailable-upgrade 0 --enable-shielded-nodes --node-locations "us-central1-c"
+
+-- patroni
+-- https://github.com/helm/charts/tree/master/incubator/patroni
+
+helm repo add incubator https://kubernetes-charts-incubator.storage.googleapis.com/
+<Error>
+<Code>AccessDenied</Code>
+<Message>Access denied.</Message>
+<Details>
+Anonymous caller does not have storage.objects.list access to the Google Cloud Storage bucket.
+</Details>
+</Error>
+
+
+git clone https://github.com/aeuge/charts
+cd charts/incubator
+-- helm dependency update
+-- helm install --name my-release incubator/patroni
+helm dependency update ./patroni/
+--Downloading etcd from repo https://charts.helm.sh/incubator
+--Downloading zookeeper from repo https://charts.helm.sh/incubator
+--Downloading consul from repo https://charts.helm.sh/stable
+
+-- helm install patroni ./patroni
+-- To install the chart with randomly generated passwords:
+
+helm install patroni ./patroni \
+--set credentials.superuser="$(< /dev/urandom tr -dc _A-Z-a-z-0-9 | head -c32)",credentials.admin="$(< /dev/urandom tr -dc _A-Z-a-z-0-9 | head -c32)",credentials.standby="$(< /dev/urandom tr -dc _A-Z-a-z-0-9 | head -c32)"
+
+--Patroni can be accessed via port 5432 on the following DNS name FROM within your cluster:
+--my-release-patroni.default.svc.cluster.local
+
+To get your password for superUSER run:
+    # superuser password
+    PGPASSWORD_SUPERUSER=$(kubectl get secret --namespace default patroni -o jsonpath="{.data.password-superuser}" | base64 --decode)
+    echo $PGPASSWORD_SUPERUSER
+    FRE6WnSefRBW707GOMnmtxErwJ6YoMWe
+    # admin password
+    PGPASSWORD_ADMIN=$(kubectl get secret --namespace default patroni -o jsonpath="{.data.password-admin}" | base64 --decode)
+    echo $PGPASSWORD_ADMIN
+    7MTRz-DQIv5HuHcFTdrG60Kq82n0Z6gd
+To connect to your database:
+1. Run a postgres pod and connect using the psql cli:
+    # login as superuser
+    kubectl run -i --tty --rm psql --image=postgres \
+      --env "PGPASSWORD=$PGPASSWORD_SUPERUSER" \
+      --command -- psql -U postgres \
+      -h my-release-patroni.default.svc.cluster.local postgres
+    # login as admin
+    kubectl run -i -tty --rm psql --image=postgres \
+      --env "PGPASSWORD=$PGPASSWORD_ADMIN" \
+      --command -- psql -U admin \
+      -h my-release-patroni.default.svc.cluster.local postgres
+-- посмотрим роли
+
+kubectl get pods -l spilo-role -L spilo-role
+
+
+
+kubectl get all -A
+kubectl get pods
+kubectl get pv
+kubectl get all -o wide
+gcloud compute disks list
+kubectl get pods -o wide --show-labels
+
+kubectl port-forward service/patroni 5432:5432
+-- посмотрим на селекторы
+kubectl describe service patroni
+
+kubectl edit service patroni
+
+spec:
+  selector:
+    spilo-role: replica
+-- выйти с сохранинием :wq!
+-- https://ru.stackoverflow.com/questions/437417/%D0%9A%D0%B0%D0%BA-%D0%B2%D1%8B%D0%B9%D1%82%D0%B8-%D0%B8%D0%B7-%D1%80%D0%B5%D0%B4%D0%B0%D0%BA%D1%82%D0%BE%D1%80%D0%B0-vi-%D0%B8%D0%BB%D0%B8-vim
+
+kubectl port-forward service/patroni 5432:5432
+-- error: Pod 'patroni-3' does not have a named port 'postgresql'
+
+targetport: 5432
+
+PGPASSWORD_SUPERUSER=$(kubectl get secret --namespace default patroni -o jsonpath="{.data.password-superuser}" | base64 --decode)
+PGPASSWORD=$PGPASSWORD_SUPERUSER psql -U postgres -h localhost
+
+-- зайдем на подик
+kubectl exec -it pod/patroni-1 -- bash
+patronictl -c postgres.yml list
+psql -U postgres
+
+
+--Connecting to PostgreSQL
+-- Your access point is a cluster IP. In order to access it spin up another pod:
+
+kubectl run -i --tty --rm psql --image=postgres --restart=Never -- bash -il
+
+--Then, FROM inside the pod, connect to PostgreSQL:
+PGPASSWORD=7MTRz-DQIv5HuHcFTdrG60Kq82n0Z6gd psql -U admin -h patroni.default.svc.cluster.local postgres
+
+PGPASSWORD=FRE6WnSefRBW707GOMnmtxErwJ6YoMWe psql -U postgres -h patroni.default.svc.cluster.local
+
+
+??-- убьем мастер
+kubectl delete pod/patroni-0
+
+
+gcloud container clusters list
+gcloud container clusters delete patroni --zone us-central1-c
+
+--посмотрим, что осталось от кластера
+gcloud compute disks list

@@ -1,0 +1,331 @@
+; Эта статья представляет собой пошаговое руководство по созданию высокодоступной архитектуры кластера PostgreSQL с использованием Patroni и HAProxy.
+
+; Patroni — это пакет Python с открытым исходным кодом, который управляет конфигурацией Postgres. 
+; Его можно настроить для выполнения таких задач, как репликация, резервное копирование и восстановление.
+
+; Etcd — это отказоустойчивое распределенное хранилище ключей и значений, используемое для хранения состояния кластера Postgres. 
+; Используя Patroni, все узлы Postgres используют etcd для поддержания работоспособности кластера Postgres. 
+; В производственной среде имеет смысл использовать кластер etcd большего размера, чтобы отказ одного узла etcd не влиял на серверы Postgres.
+
+; После настройки кластера Postgres нам нужен способ подключения к главному серверу независимо от того, какой из серверов в кластере является ведущим. 
+; Здесь в дело вступает HAProxy. Все клиенты/приложения Postgres будут подключаться к HAProxy, который обеспечит подключение к главному узлу в кластере.
+
+; HAProxy — это высокопроизводительный балансировщик нагрузки с открытым исходным кодом и обратный прокси-сервер для приложений TCP и HTTP. 
+; HAProxy можно использовать для распределения нагрузки и повышения производительности веб-сайтов и приложений.
+
+
+Machine: node1, IP: <node1_ip>, Role: Postgresql, Patroni
+Machine: node2, IP: <node2_ip>, Role: Postgresql, Patroni
+Machine: node3, IP: <node3_ip>, Role: Postgresql, Patroni
+Machine: etcdnode, IP: <etcdnode_ip>, Role: etcd
+Machine: haproxynode, IP: <haproxynode_ip>, Role: HA Proxy
+
+
+
+yc compute instance create \
+    --name node1 \
+    --ssh-key ~/.ssh/id_rsa.pub \
+    --create-boot-disk image-folder-id=standard-images,image-family=ubuntu-1804-lts,size=10,auto-delete=true \
+    --network-interface subnet-name=default-ru-central1-a,nat-ip-version=ipv4 \
+    --memory 2G \
+    --cores 2 \
+    --zone ru-central1-a \
+    --hostname node1
+
+yc compute instance create \
+    --name node2 \
+    --ssh-key ~/.ssh/id_rsa.pub \
+    --create-boot-disk image-folder-id=standard-images,image-family=ubuntu-1804-lts,size=10,auto-delete=true \
+    --network-interface subnet-name=default-ru-central1-a,nat-ip-version=ipv4 \
+    --memory 2G \
+    --cores 2 \
+    --zone ru-central1-a \
+    --hostname node2
+
+yc compute instance create \
+    --name node3 \
+    --ssh-key ~/.ssh/id_rsa.pub \
+    --create-boot-disk image-folder-id=standard-images,image-family=ubuntu-1804-lts,size=10,auto-delete=true \
+    --network-interface subnet-name=default-ru-central1-a,nat-ip-version=ipv4 \
+    --memory 2G \
+    --cores 2 \
+    --zone ru-central1-a \
+    --hostname node3
+
+yc compute instance create \
+    --name etcdnode \
+    --ssh-key ~/.ssh/id_rsa.pub \
+    --create-boot-disk image-folder-id=standard-images,image-family=ubuntu-1804-lts,size=10,auto-delete=true \
+    --network-interface subnet-name=default-ru-central1-a,nat-ip-version=ipv4 \
+    --memory 2G \
+    --cores 2 \
+    --zone ru-central1-a \
+    --hostname etcdnode
+
+yc compute instance create \
+    --name haproxynode \
+    --ssh-key ~/.ssh/id_rsa.pub \
+    --create-boot-disk image-folder-id=standard-images,image-family=ubuntu-1804-lts,size=10,auto-delete=true \
+    --network-interface subnet-name=default-ru-central1-a,nat-ip-version=ipv4 \
+    --memory 2G \
+    --cores 2 \
+    --zone ru-central1-a \
+    --hostname haproxynode
+
+
+
+; Step 1 –  Setup node1, node2, node3:
+sudo apt update
+
+sudo hostnamectl set-hostname nodeN
+
+sudo apt install net-tools
+
+sudo apt install postgresql postgresql-server-dev-all
+
+sudo systemctl stop postgresql
+
+sudo ln -s /usr/lib/postgresql/12/bin/* /usr/sbin/
+
+sudo apt -y install python python3-pip
+
+sudo apt install python3-testresources   
+
+sudo pip3 install --upgrade setuptools 
+ 
+sudo pip3 install psycopg2
+
+sudo pip3 install patroni
+
+sudo pip3 install python-etcd
+
+
+
+; Step 2 –  Setup etcdnode:
+sudo apt update
+
+sudo hostnamectl set-hostname etcdnode
+
+sudo apt install net-tools
+
+sudo apt -y install etcd 
+
+
+
+; Step 3 – Setup haproxynode:
+
+sudo apt update
+
+sudo hostnamectl set-hostname haproxynode
+
+sudo apt install net-tools
+
+sudo apt -y install haproxy
+
+ 
+
+; Step 4 – Configure etcd on the etcdnode: 
+
+sudo nano /etc/default/etcd   
+
+ETCD_LISTEN_PEER_URLS="http://<etcdnode_ip>:2380"
+ETCD_LISTEN_CLIENT_URLS="http://localhost:2379,http://<etcdnode_ip>:2379"
+ETCD_INITIAL_ADVERTISE_PEER_URLS="http://<etcdnode_ip>:2380"
+ETCD_INITIAL_CLUSTER="default=http://<etcdnode_ip>:2380,"
+ETCD_ADVERTISE_CLIENT_URLS="http://<etcdnode_ip>:2379"
+ETCD_INITIAL_CLUSTER_TOKEN="etcd-cluster"
+ETCD_INITIAL_CLUSTER_STATE="new"
+
+sudo systemctl restart etcd 
+
+sudo systemctl status etcd
+
+curl http://<etcdnode_ip>:2380/members
+
+
+
+; Step 5 – Configure Patroni on the node1, on the node2 and on the node3:
+
+sudo nano /etc/patroni.yml
+
+scope: postgres
+namespace: /db/
+name: <nodeN>
+
+restapi:
+    listen: <nodeN_ip>:8008
+    connect_address: <nodeN_ip>:8008
+
+etcd:
+    host: <etcdnode_ip>:2379
+
+bootstrap:
+  dcs:
+    ttl: 30
+    loop_wait: 10
+    retry_timeout: 10
+    maximum_lag_on_failover: 1048576
+    postgresql:
+      use_pg_rewind: true
+      use_slots: true
+      parameters:
+
+  initdb:
+  - encoding: UTF8
+  - data-checksums
+
+  pg_hba:
+  - host replication replicator 127.0.0.1/32 md5
+  - host replication replicator <node1_ip>/0 md5
+  - host replication replicator <node2_ip>/0 md5
+  - host replication replicator <node3_ip>/0 md5
+  - host all all 0.0.0.0/0 md5
+
+  users:
+    admin:
+      password: admin
+      options:
+        - createrole
+        - createdb
+
+postgresql:
+  listen: <nodeN_ip>:5432
+  connect_address: <nodeN_ip>:5432
+  data_dir: /data/patroni
+  pgpass: /tmp/pgpass
+  authentication:
+    replication:
+      username: replicator
+      password: ************
+    superuser:
+      username: postgres
+      password: ************
+  parameters:
+      unix_socket_directories: '.'
+
+tags:
+    nofailover: false
+    noloadbalance: false
+    clonefrom: false
+    nosync: false
+
+
+sudo mkdir -p /data/patroni
+
+sudo chown postgres:postgres /data/patroni
+
+sudo chmod 700 /data/patroni 
+
+sudo nano /etc/systemd/system/patroni.service
+
+[Unit]
+Description=High availability PostgreSQL Cluster
+After=syslog.target network.target
+
+[Service]
+Type=simple
+User=postgres
+Group=postgres
+ExecStart=/usr/local/bin/patroni /etc/patroni.yml
+KillMode=process
+TimeoutSec=30
+Restart=no
+
+[Install]
+WantedBy=multi-user.targ
+
+
+
+; Step 6 – Start Patroni service on the node1, on the node2 and on the node3:
+
+sudo systemctl start patroni
+sudo systemctl status patroni
+
+
+
+; Step 7 – Configuring HA Proxy on the node haproxynode: 
+
+sudo nano /etc/haproxy/haproxy.cfg
+
+Replace its context with this:
+
+global
+        maxconn 100
+        log     127.0.0.1 local2
+
+defaults
+        log global
+        mode tcp
+        retries 2
+        timeout client 30m
+        timeout connect 4s
+        timeout server 30m
+        timeout check 5s
+
+listen stats
+    mode http
+    bind *:7000
+    stats enable
+    stats uri /
+
+listen postgres
+    bind *:5000
+    option httpchk
+    http-check expect status 200
+    default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions
+    server node1 <node1_ip>:5432 maxconn 100 check port 8008
+    server node2 <node2_ip>:5432 maxconn 100 check port 8008
+    server node3 <node3_ip>:5432 maxconn 100 check port 8008
+
+sudo systemctl restart haproxy
+
+sudo systemctl status haproxy
+
+
+
+; Step 8 – Testing High Availability Cluster Setup of PostgreSQL:
+
+http://<haproxynode_ip>:7000/>
+
+; Simulate node1 crash:
+
+sudo systemctl stop patroni
+
+; In this case, the second Postgres server is promoted to master.
+
+
+
+; Step 9 – Connect Postgres clients to the HAProxy IP address:
+
+psql -h <haproxynode_ip> -p 5000 -U postgres
+
+dmi@dmi-mac ~ % psql -h 192.168.1.115 -p 5000 -U postgres
+Password for user postgres: 
+psql (12.4)
+Type "help" for help.
+
+postgres=# 
+
+dmi@dmi-mac ~ % psql -h 192.168.1.115 -p 5000 -U some_db
+Password for user some_user: 
+psql (12.4)
+Type "help" for help.
+
+some_db=>
+
+dmi@node1:~$ patronictl -c /etc/patroni.yml list
++ Cluster: postgres (6871178537652191317) ---+----+-----------+
+| Member | Host          | Role    | State   | TL | Lag in MB |
++--------+---------------+---------+---------+----+-----------+
+| node1  | 192.168.1.139 | Replica | running |  2 |         0 |
+| node2  | 192.168.1.110 | Leader  | running |  2 |           |
+| node3  | 192.168.1.146 | Replica | running |  2 |         0 |
++--------+---------------+---------+---------+----+-----------+
+dmi@node1:~$ 
+
+
+
+; Step 10 – Failover test:
+; On one of the nodes run:
+
+sudo systemctl stop patroni
