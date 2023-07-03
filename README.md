@@ -1,5 +1,5 @@
-# Курс Postgres Cloud OTUS
-
+# Курс Postgres Cloud OTUS(Advanced )
+::crossed-fingers
 ## Темы
 
 1. [SQL и реляционные СУБД. PostgreSQL в облаках](Lesson_1/README.md)
@@ -14,5 +14,7 @@
 10. [Работа с большим объемом реальных данных](Lesson_10/README.md)
 11. [Варианты кластеров высокой доступности для PostgreSQL](Lesson_11/README.md)
 12. [Работа с кластером высокой доступности](Lesson_12/README.md)
-
-':bowtie:'
+13. [Способы горизонтального масштабирования PostgreSQL](Lesson_13/README.md)
+14. [Работа с горизонтально масштабируемым кластером ](Lesson_14/README.md)
+15. [PostgreSQL и Google Kubernetes Engine](Lesson_15/README.md)
+16. [Pentaho](Lesson_16/README.md)
