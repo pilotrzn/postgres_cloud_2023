@@ -1,0 +1,54 @@
+# Заметки по работе с CITUS
+​
+## Установка CITUS в Ubuntu 20.10
+​
+По умолчанию CITUS поддерживает только LTS дистрибутивы Ubuntu, поэтому установка по инструкции http://docs.citusdata.com/en/v9.5/installation/single_machine_debian.html для Ubuntu 20.10 заканчивается с ошибкой.
+Чтобы устранить ошибку, после выполнения пункта 
+​
+```
+# Add Citus repository for package manager
+curl https://install.citusdata.com/community/deb.sh | sudo bash
+```
+нужно в файле 
+​
+```
+/etc/apt/sources.list.d/citusdata_community.list
+```
+изменить groovy на focal. После этого установка проходит корректно, все работает.
+​
+## Добавление ноды в кластер CITUS Community
+​
+Согласно документации http://docs.citusdata.com/en/v9.5/faq/faq.html#how-do-i-add-nodes-to-an-existing-citus-cluster , добавить ноду в кластер CITUS Community можно. Однако, после добавления ноды в шарбировании она не участвует.
+​
+Для вклчючения ноды требуется выполнить ребаланс:
+To rebalance existing shards FROM the older nodes to the new node, Citus Cloud and Enterprise edition provide a shard rebalancer utility.
+но эта функция доступна только в Enterprise редакции.
+​
+Для включения шардирования таблиц на вновь добавленную ноду на координаторе требуется дополнительно выполнить действия:
+​
+1. Изменить параметр 
+​
+```
+citus.shard_replication_factor
+```
+​
+указав в нём число worker'ов (если указать больше зарегистрированных, появится ошибка).
+​
+2. Удалить распределенные таблицы, которые требуется перенести на новую ноду, выполнив команду
+​
+```
+SELECT * FROM undistribute_table(table_name);
+```
+​
+при этом данные из шардированной таблицы будут собраны на контроллере (на нем должно быть достаточно места, чтобы разместить данные)
+​
+3. Заново выполнить команду по созданию распределенных таблиц
+​
+```
+SELECT create_distributed_table(table_name, sharding_key);
+```
+​
+и выполнить удаление данных на координаторе
+​
+```
+SELECT truncate_local_data_after_distributing_table('public.github_events');

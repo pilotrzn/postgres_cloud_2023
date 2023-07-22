@@ -1,0 +1,33 @@
+-- https://cloud.yandex.ru/docs/cli/cli-ref/managed-services/compute/instance/create
+
+ssh aeugene@51.250.18.186
+wget -qO- https://binaries.cockroachdb.com/cockroach-v21.1.6.linux-amd64.tgz | tar  xvz && sudo cp -i cockroach-v21.1.6.linux-amd64/cockroach /usr/local/bin/ && sudo mkdir -p /opt/cockroach && sudo chown aeugene:aeugene /opt/cockroach
+mkdir certs my-safe-directory
+cockroach cert create-ca --certs-dir=certs --ca-key=my-safe-directory/ca.key
+cockroach cert create-node localhost cockroach1 cockroach2 cockroach3 cockroach4 --certs-dir=certs --ca-key=my-safe-directory/ca.key --overwrite
+cockroach cert create-client root --certs-dir=certs --ca-key=my-safe-directory/ca.key
+
+cockroach cert list --certs-dir=certs
+
+cockroach start --certs-dir=certs --advertise-addr=cockroach1 --join=cockroach1 --cache=.25 --max-sql-memory=.25 --background
+cockroach init --certs-dir=certs --host=cockroach1
+
+cockroach node status --certs-dir=certs
+
+cockroach sql --certs-dir=certs
+
+CREATE TABLE if not exists items (itemname varchar(128) primary key, price decimal(19,4), quantity int);
+import INTO items (itemname, price, quantity) CSV DATA ('gs://postgres13/cockroachdb.csv') WITH DELIMITER = E'\t';
+
+-- ERROR: Get "https://storage.googleapis.com/postgres13/cockroachdb.csv": metadata: GCE metadata "instance/service-accounts/default/token?scopes=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdevstorage.read_write" not defined
+-- https://www.cockroachlabs.com/docs/v21.2/import-into.html
+-- https://www.cockroachlabs.com/docs/v21.2/use-cloud-storage-for-bulk-operations
+-- enable ?AUTH=implicit
+import INTO items (itemname, price, quantity) CSV DATA ('gs://postgres13/cockroachdb.csv?AUTH=implicit') WITH DELIMITER = E'\t';
+
+-- не работает
+IMPORT INTO test (Region,Country,ItemType,SalesChannel,OrderPriority,OrderDate,OrderID,ShipDate,UnitsSold,UnitPrice,UnitCost,TotalRevenue,TotalCost,TotalProfit) CSV DATA ('gs://postgres13/1000000SalesRecords.csv?AUTH=implicit') WITH DELIMITER = ',', SKIP = '1';
+
+-- вот так работает)
+IMPORT INTO test (Region,Country,ItemType,SalesChannel,OrderPriority,OrderDate,OrderID,ShipDate,UnitsSold,UnitPrice,UnitCost,TotalRevenue,TotalCost,TotalProfit) CSV DATA ('https://storage.googleapis.com/postgres13/1000000SalesRecords.csv?AUTH=implicit') WITH DELIMITER = ',', SKIP = '1';
+

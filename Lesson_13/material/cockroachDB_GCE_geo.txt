@@ -1,0 +1,228 @@
+
+1. Создаем глобальный VPC otus-vpc c  тремч подсетями в разных регионах:
+	  name          = "otus-subn-eu-n1"
+	  ip_cidr_range = "10.0.10.0/24"
+
+	  name          = "otus-subn-us-e1"
+  	  ip_cidr_range = "10.0.20.0/24"
+
+	  name          = "otus-subn-asia-e1"
+	  ip_cidr_range = "10.0.30.0/24"
+
+		[maksim: ~] $ gcloud compute networks list
+		NAME      SUBNET_MODE  BGP_ROUTING_MODE  IPV4_RANGE  GATEWAY_IPV4
+		default   AUTO         REGIONAL
+		otus-vpc  CUSTOM       GLOBAL
+		[maksim: ~] $ 
+
+		[maksim: ~] $ gcloud compute networks subnets list
+		NAME               REGION         NETWORK   RANGE
+		otus-subn-asia-e1  asia-east1     otus-vpc  10.0.30.0/24
+		otus-subn-us-e1    us-east1       otus-vpc  10.0.20.0/24
+		otus-subn-eu-n1    europe-north1  otus-vpc  10.0.10.0/24
+		[maksim: ~] $ 
+
+		 Создаем правила межсетевого экрана ( all)  внутри сети.
+
+2. Создаем сервера: 1 бастион и по 3 в каждом регионе
+		[maksim: ~] $ gcloud compute  instances list
+		NAME              ZONE             MACHINE_TYPE   PREEMPTIBLE  INTERNAL_IP  EXTERNAL_IP     STATUS
+		cockdb-0-asia-e1  asia-east1-a     n1-standard-1               10.0.30.4                    RUNNING
+		cockdb-1-asia-e1  asia-east1-a     n1-standard-1               10.0.30.2                    RUNNING
+		cockdb-2-asia-e1  asia-east1-a     n1-standard-1               10.0.30.3                    RUNNING
+		cockdb-0-eu-n1    europe-north1-a  n1-standard-1               10.0.10.3                    RUNNING
+		cockdb-1-eu-n1    europe-north1-a  n1-standard-1               10.0.10.4                    RUNNING
+		cockdb-2-eu-n1    europe-north1-a  n1-standard-1               10.0.10.2                    RUNNING
+		vm-bastion-0      europe-north1-a  n1-standard-1               10.0.10.5    35.228.241.131  RUNNING
+		cockdb-0-us-e1    us-east1-b       n1-standard-1               10.0.20.3                    RUNNING
+		cockdb-1-us-e1    us-east1-b       n1-standard-1               10.0.20.4                    RUNNING
+		cockdb-2-us-e1    us-east1-b       n1-standard-1               10.0.20.2                    RUNNING
+		[maksim: ~] $ 
+	Подготавливаем сервера и устанавливаем на них CockroachDB.
+
+	wget -qO- https://binaries.cockroachdb.com/cockroach-v20.1.0.linux-amd64.tgz | tar  xvz
+	cp -i cockroach-v20.1.0.linux-amd64/cockroach /usr/local/bin/
+	mkdir /var/lib/cockroach
+	useradd cockroach
+	chown cockroach /var/lib/cockroach
+	vi /etc/systemd/system/insecurecockroachdb.service
+	<<<
+	[Unit]
+	Description=Cockroach DATABASE cluster node
+	Requires=network.target
+	[Service]
+	Type=notify
+	WorkingDirectory=/var/lib/cockroach
+	ExecStart=/usr/local/bin/cockroach start --insecure --advertise-addr=<hostname> --listen-addr=<hostname> --join=cockdb-0-eu-n1,cockdb-1-eu-n1,cockdb-1-eu-n1,cockdb-0-us-e1,cockdb-1-us-e1,cockdb-2-us-e1,cockdb-0-asia-e1,cockdb-1-asia-e1,cockdb-2-asia-e1 --cache=.25 --max-sql-memory=.25
+	TimeoutStopSec=60
+	Restart=always
+	RestartSec=10
+	StandardOutput=syslog
+	StandardError=syslog
+	SyslogIdentifier=cockroach
+	User=cockroach
+	[Install]
+	WantedBy=default.target
+
+	Кластер создаем без сертифификатов. 
+		advertise-addr= - локальный хост
+		listen-addr= 	- локальный хост
+		join=			- список всех нод кластера.
+
+	Для работы скластера необходимо синхронизация времени (в гугле настраивается на time1.google.com) инече нода не подымиться, жалуясь на дрифт в 500ms.
+
+	После запуска Cockroach на всех нодах проверяем статус кластера:
+		root@cockdb-0-eu-n1:~# /usr/local/bin/cockroach node status --host cockdb-0-eu-n1 --insecure
+	  id |        address         |      sql_address       |  build  |            started_at            |            updated_at            | locality | is_available | is_live
+	-----+------------------------+------------------------+---------+----------------------------------+----------------------------------+----------+--------------+----------
+	   1 | cockdb-0-eu-n1:26257   | cockdb-0-eu-n1:26257   | v20.1.0 | 2020-05-13 06:39:55.555089+00:00 | 2020-05-13 08:24:55.777654+00:00 |          | true         | true
+	   2 | cockdb-2-eu-n1:26257   | cockdb-2-eu-n1:26257   | v20.1.0 | 2020-05-13 06:43:05.75402+00:00  | 2020-05-13 08:24:52.516526+00:00 |          | true         | true
+	   3 | cockdb-1-eu-n1:26257   | cockdb-1-eu-n1:26257   | v20.1.0 | 2020-05-13 06:42:59.796695+00:00 | 2020-05-13 08:24:55.507937+00:00 |          | true         | true
+	   4 | cockdb-2-us-e1:26257   | cockdb-2-us-e1:26257   | v20.1.0 | 2020-05-13 06:59:53.087876+00:00 | 2020-05-13 08:24:51.928652+00:00 |          | true         | true
+	   5 | cockdb-0-us-e1:26257   | cockdb-0-us-e1:26257   | v20.1.0 | 2020-05-13 07:02:03.352443+00:00 | 2020-05-13 08:24:51.687939+00:00 |          | true         | true
+	   6 | cockdb-1-us-e1:26257   | cockdb-1-us-e1:26257   | v20.1.0 | 2020-05-13 07:02:07.409023+00:00 | 2020-05-13 08:24:55.697451+00:00 |          | true         | true
+	   7 | cockdb-0-asia-e1:26257 | cockdb-0-asia-e1:26257 | v20.1.0 | 2020-05-13 08:13:01.359431+00:00 | 2020-05-13 08:24:53.345445+00:00 |          | true         | true
+	   8 | cockdb-1-asia-e1:26257 | cockdb-1-asia-e1:26257 | v20.1.0 | 2020-05-13 08:23:01.32374+00:00  | 2020-05-13 08:24:54.065868+00:00 |          | true         | true
+	   9 | cockdb-2-asia-e1:26257 | cockdb-2-asia-e1:26257 | v20.1.0 | 2020-05-13 08:24:18.788863+00:00 | 2020-05-13 08:24:55.442354+00:00 |          | true         | true
+	(9 rows)
+	root@cockdb-0-eu-n1:~#
+
+
+3. Подплючаемся клиентом и проверяем мульмимастер
+Азия:
+	root@cockdb-0-asia-e1:~# cockroach sql --insecure --host=cockdb-0-asia-e1
+		CREATE TABLE users (
+	        id UUID PRIMARY KEY,
+	        name STRING
+	);
+	CREATE TABLE
+
+	Time: 3.236554125s
+
+	root@cockdb-0-asia-e1:26257/defaultdb> SELECT * FROM users;
+	  id | name
+	-----+-------
+	(0 rows)
+
+	Time: 2.793513638s
+
+	root@cockdb-0-asia-e1:26257/defaultdb> INSERT TABLE user
+	tab completion not supported; append '??' and press tab for contextual help
+
+	root@cockdb-0-asia-e1:26257/defaultdb> 
+	root@cockdb-0-asia-e1:26257/defaultdb> INSERT INTO users VALUES ('c28f5c28-f5c2-4000-8000-000000000026', 'Vasya');
+	INSERT 1
+
+	Time: 413.164553ms
+
+	root@cockdb-0-asia-e1:26257/defaultdb> SELECT * FROM users;
+	                   id                  | name
+	---------------------------------------+--------
+	  c28f5c28-f5c2-4000-8000-000000000026 | Vasya
+	(1 row)
+
+	Time: 287.873845ms
+
+	root@cockdb-0-asia-e1:26257/defaultdb>
+Европа:
+	root@cockdb-2-eu-n1:~# cockroach sql --insecure --host=cockdb-2-eu-n1
+	#
+	# Welcome to the CockroachDB SQL shell.
+	# All statements must be terminated by a semicolon.
+	# To exit, type: \q.
+	#
+	# Server version: CockroachDB CCL v20.1.0 (x86_64-unknown-linux-gnu, built 2020/05/05 00:07:18, go1.13.9) (same version as client)
+	# Cluster ID: a6786b24-0b7f-429f-a0c0-6d219d4ca198
+	#
+	# Enter \? for a brief introduction.
+	#
+	root@cockdb-2-eu-n1:26257/defaultdb> SELECT * FROM users;
+	                   id                  | name
+	---------------------------------------+--------
+	  c28f5c28-f5c2-4000-8000-000000000026 | Vasya
+	(1 row)
+
+	Time: 1.678945179s
+
+	root@cockdb-2-eu-n1:26257/defaultdb>
+
+
+	root@cockdb-2-eu-n1:~# cockroach sql --insecure --host=cockdb-2-eu-n1
+	#
+	# Welcome to the CockroachDB SQL shell.
+	# All statements must be terminated by a semicolon.
+	# To exit, type: \q.
+	#
+	# Server version: CockroachDB CCL v20.1.0 (x86_64-unknown-linux-gnu, built 2020/05/05 00:07:18, go1.13.9) (same version as client)
+	# Cluster ID: a6786b24-0b7f-429f-a0c0-6d219d4ca198
+	#
+	# Enter \? for a brief introduction.
+	#
+	root@cockdb-2-eu-n1:26257/defaultdb> SELECT * FROM users;
+	                   id                  | name
+	---------------------------------------+--------
+	  c28f5c28-f5c2-4000-8000-000000000026 | Vasya
+	(1 row)
+
+	Time: 1.678945179s
+
+	root@cockdb-2-eu-n1:26257/defaultdb>
+
+
+Азия:
+	root@cockdb-0-asia-e1:26257/defaultdb> SELECT * FROM users;
+	                   id                  | name
+	---------------------------------------+--------
+	  c28f5c28-f5c2-4000-8000-000000000026 | Vasya
+	  c28f5c28-f5c2-4000-8000-000000000044 | Petya
+	  c28f5c28-f5c2-4000-8000-000000000999 | Vanya
+	(3 rows)
+
+	Time: 1.228933482s
+
+
+	root@cockdb-0-asia-e1:26257/defaultdb> INSERT INTO users VALUES ('c28f5c28-f5c2-4000-8000-000000000111', 'Vasy111a');
+	INSERT 1
+
+	Time: 306.259191ms
+
+	root@cockdb-0-asia-e1:26257/defaultdb> 
+
+	root@cockdb-2-eu-n1:26257/defaultdb> SELECT * FROM users;
+                   id                  |   name
+---------------------------------------+-----------
+  c28f5c28-f5c2-4000-8000-000000000026 | Vasya
+  c28f5c28-f5c2-4000-8000-000000000044 | Petya
+  c28f5c28-f5c2-4000-8000-000000000111 | Vasy111a
+  c28f5c28-f5c2-4000-8000-000000000999 | Vanya
+(4 rows)
+
+Time: 126.050938ms
+
+root@cockdb-2-eu-n1:26257/defaultdb>
+
+Работает.
+
+ И под конец - нагрузочное тестирование:
+
+Подготовка:
+	root@cockdb-0-eu-n1:~# cockroach workload init tpcc --warehouses=5 "postgres://root@cockdb-0-eu-n1:26257?sslmode=disable"
+	I200513 09:19:50.967203 1 workload/workloadsql/dataload.go:140  imported warehouse (2s, 5 rows)
+	I200513 09:19:53.238310 1 workload/workloadsql/dataload.go:140  imported district (2s, 50 rows)
+	I200513 09:20:34.186654 1 workload/workloadsql/dataload.go:140  imported customer (41s, 150000 rows)
+	I200513 09:20:51.555439 1 workload/workloadsql/dataload.go:140  imported history (17s, 150000 rows)
+	I200513 09:21:03.758881 1 workload/workloadsql/dataload.go:140  imported order (12s, 150000 rows)
+	I200513 09:21:06.773183 1 workload/workloadsql/dataload.go:140  imported new_order (3s, 45000 rows)
+	I200513 09:21:13.310562 1 workload/workloadsql/dataload.go:140  imported item (7s, 100000 rows)
+	I200513 09:22:18.879702 1 workload/workloadsql/dataload.go:140  imported stock (1m6s, 500000 rows)
+	I200513 09:24:16.605867 1 workload/workloadsql/dataload.go:140  imported order_line (1m58s, 1500459 rows)
+	root@cockdb-0-eu-n1:~# 
+	root@cockdb-0-eu-n1:~# 
+
+Запускаем сначало на одном узле:
+	root@cockdb-0-eu-n1:~# cockroach workload run tpcc --warehouses=5 --ramp=3m --duration=10m "postgres://root@cockdb-0-eu-n1:26257?sslmode=disable"
+	Initializing 10 connections...
+	Initializing 50 workers and preparing statements...
+	_elapsed___errors__ops/sec(inst)___ops/sec(cum)__p50(ms)__p95(ms)__p99(ms)_pMax(ms)
+	    1.0s        0            0.0            0.0      0.0      0.0      0.0      0.0 delivery
+	    1.0s        0            0.0            0.0      0.0      0.0      0.0      0.0 newOrder
