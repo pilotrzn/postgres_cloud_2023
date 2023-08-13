@@ -1,0 +1,93 @@
+apiVersion: pg.percona.com/v1
+kind: PerconaPGCluster
+metadata:
+  labels:
+    pgo-version: 1.4.0
+  name: cluster1
+spec:
+  sslCA: cluster1-ssl-ca
+  sslSecretName: cluster1-ssl-keypair
+  sslReplicationSecretName: cluster1-replication-ssl-keypair
+  upgradeOptions:
+    versionServiceEndpoint: 'https://check.percona.com'
+    apply: disabled
+    schedule: 0 4 * * *
+  database: pgdb
+  port: '5432'
+  user: pguser
+  disableAutofail: false
+  tlsOnly: false
+  standby: false
+  pause: false
+  keepData: true
+  keepBackups: true
+  pgPrimary:
+    image: 'docker.io/percona/percona-postgresql-operator:1.4.0-ppg14-postgres-ha'
+    resources:
+      requests:
+        cpu: 500m
+        memory: 256Mi
+    tolerations: []
+    volumeSpec:
+      size: 1Gi
+      accessmode: ReadWriteOnce
+      storagetype: dynamic
+      storageclass: ''
+    expose:
+      serviceType: ClusterIP
+  pmm:
+    enabled: false
+    image: 'percona/pmm-client:2.36.0'
+    serverHost: monitoring-service
+    serverUser: admin
+    pmmSecret: cluster1-pmm-secret
+    resources:
+      requests:
+        memory: 200M
+        cpu: 500m
+  backup:
+    image: 'docker.io/percona/percona-postgresql-operator:1.4.0-ppg14-pgbackrest'
+    backrestRepoImage: 'docker.io/percona/percona-postgresql-operator:1.4.0-ppg14-pgbackrest-repo'
+    resources:
+      requests:
+        cpu: 200m
+        memory: 48Mi
+    volumeSpec:
+      size: 1Gi
+      accessmode: ReadWriteOnce
+      storagetype: dynamic
+      storageclass: ''
+    schedule:
+      - name: sat-night-backup
+        schedule: 0 0 * * 6
+        keep: 3
+        type: full
+        storage: local
+  pgBouncer:
+    image: 'docker.io/percona/percona-postgresql-operator:1.4.0-ppg14-pgbouncer'
+    size: 3
+    resources:
+      requests:
+        cpu: '1'
+        memory: 128Mi
+    expose:
+      serviceType: ClusterIP
+  pgReplicas:
+    hotStandby:
+      size: 2
+      resources:
+        requests:
+          cpu: 500m
+          memory: 256Mi
+      volumeSpec:
+        accessmode: ReadWriteOnce
+        size: 1Gi
+        storagetype: dynamic
+        storageclass: ''
+      enableSyncStandby: false
+      expose:
+        serviceType: ClusterIP
+  pgBadger:
+    enabled: false
+    image: 'docker.io/percona/percona-postgresql-operator:1.4.0-ppg14-pgbadger'
+    port: 10000

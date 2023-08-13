@@ -1,0 +1,2 @@
+$ sudo cp /etc/kubernetes/admin.conf ~/.kube/config
+$ sudo chown $UID:$UID ~/.kube/config

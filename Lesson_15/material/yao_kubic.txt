@@ -1,0 +1,153 @@
+-- https://github.com/yandex-cloud/docs/blob/master/ru/cli/quickstart.md
+
+-- https://cloud.yandex.ru/docs/cli/cli-ref/managed-services/managed-kubernetes/cluster/
+
+-- https://cloud.yandex.ru/docs/cli/cli-ref/managed-services/managed-kubernetes/cluster/create
+
+-- https://github.com/nar3k/yc-public-tasks/blob/master/k8s/README.md
+
+
+-- Создание сети для задания
+-- Создадим сеть и подсети в трех зонах доступности для работы группы виртуальных машин
+yc vpc network create --name yc-auto-network
+
+zones=(a b c)
+
+for i in ${!zones[@]}; do
+  echo "Creating subnet yc-auto-subnet-$i"
+  yc vpc subnet create --name yc-auto-subnet-$i \
+  --zone ru-central1-${zones[$i]} \
+  --range 192.168.$i.0/24 \
+  --network-name yc-auto-network
+done
+
+-- Создание кластера Kubernetes и Container Registry
+-- Создадим сервисный аккаунт для кластера
+FOLDER_ID=$(yc config get folder-id)
+
+yc iam service-account create --name k8s-sa-${FOLDER_ID}
+SA_ID=$(yc iam service-account get --name k8s-sa-${FOLDER_ID} --format json | jq .id -r)
+yc resource-manager folder add-access-binding --id $FOLDER_ID --role admin --subject serviceAccount:$SA_ID
+
+-- Создадим мастер
+-- около 6 минут
+yc managed-kubernetes cluster create \
+ --name k8s-demo --network-name yc-auto-network \
+ --zone ru-central1-a  --subnet-name yc-auto-subnet-0 \
+ --public-ip \
+ --service-account-id ${SA_ID} --node-service-account-id ${SA_ID} --async
+
+-- Создание группы узлов
+
+-- Перейдите в веб интерфейс вашего каталога в раздел "Managed Service For Kubernetes". 
+-- Дождитесь создания кластера - он должен перейти в статус Ready и состояние Healthy. Теперь создадим группу узлов
+
+yc managed-kubernetes node-group create \
+ --name k8s-demo-ng \
+ --cluster-name k8s-demo \
+ --platform-id standard-v2 \
+ --public-ip \
+ --cores 2 \
+ --memory 4 \
+ --core-fraction 50 \
+ --disk-type network-ssd \
+ --fixed-size 2 \
+ --location subnet-name=yc-auto-subnet-0,zone=ru-central1-a \
+ --async
+
+-- ERROR: rpc error: code = InvalidArgument desc = Validation error:
+-- allocation_policy.locations[0].subnet_id: can't use "allocation_policy.locations[0].subnet_id" 
+-- together with "node_template.network_interface_specs"
+
+-- исключаем публичный IP
+yc managed-kubernetes node-group create \
+ --name k8s-demo-ng \
+ --cluster-name k8s-demo \
+ --platform-id standard-v2 \
+ --cores 2 \
+ --memory 4 \
+ --core-fraction 50 \
+ --disk-type network-ssd \
+ --fixed-size 2 \
+ --location subnet-name=yc-auto-subnet-1,zone=ru-central1-b \
+ --async
+
+
+-- Подключение к кластеру
+
+yc managed-kubernetes cluster get-credentials --external --name k8s-demo
+
+-- Создание группы узлов занимает около 3 минут - давайте пока подключимся к кластеру при помощи kubectl.
+-- Дождемся создания группы узлов с помощью kubectl
+
+watch kubectl get nodes
+
+
+yc container cluster list-node-groups catnh4ppjut3hu3bofiv
+yc container cluster list-nodes catnh4ppjut3hu3bofiv
+
+kubectl get all
+
+helm list
+
+-- Установка Helm v2
+-- Установите tiller
+
+cat  > tiller-sa.yaml <<EOF
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tiller
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tiller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: tiller
+    namespace: kube-system
+EOF
+kubectl apply -f tiller-sa.yaml
+helm init --service-account tiller
+
+yc container image list
+
+-- работаем через ЯО реджистри
+https://cloud.yandex.ru/docs/container-registry/operations/helm-chart/helm-chart-push
+
+
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+helm install prom prometheus-community/prometheus
+
+
+-- Завершение работы
+-- Удалите кластер (занимает около 1 минуты)
+
+yc managed-kubernetes cluster delete --name k8s-demo
+
+-- Удалите сервисный аккаунт Внимание: не удаляйте сервисный аккаунт до удаления кластера!
+
+FOLDER_ID=$(yc config get folder-id)
+SA_ID=$(yc iam service-account get --name k8s-sa-${FOLDER_ID} --format json | jq .id -r)
+yc iam service-account delete --id $SA_ID
+
+
+-- Удалите подсети и сеть
+
+zones=(a b c)
+
+for i in ${!zones[@]}; do
+  echo "Deleting subnet yc-auto-subnet-$i"
+  yc vpc subnet delete --name yc-auto-subnet-$i
+done
+
+yc vpc network delete --name yc-auto-network
+
+-- посмотрим на оставшиеся диски 
