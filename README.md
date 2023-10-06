@@ -1,5 +1,5 @@
 # Курс Postgres Cloud OTUS(Advanced )
-::crossed-fingers
+🤞
 ## Темы
 
 1. [SQL и реляционные СУБД. PostgreSQL в облаках](Lesson_1/README.md)
